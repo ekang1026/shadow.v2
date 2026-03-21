@@ -1,0 +1,273 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+
+interface HVTCompany {
+  id: string;
+  status: string;
+  review_count: number;
+  snapshot: {
+    name: string | null;
+    website: string | null;
+    linkedin_url: string | null;
+    pitchbook_url: string | null;
+    ceo_name: string | null;
+    ceo_linkedin_url: string | null;
+    ceo_email: string | null;
+    ceo_phone: string | null;
+    founded_year: number | null;
+    location: string | null;
+    headcount: number | null;
+    headcount_growth_1yr: number | null;
+    total_capital_raised: number | null;
+    last_round_valuation: number | null;
+    what_they_do: string | null;
+  } | null;
+  outreach: {
+    outreach_count: number;
+    days_since_last_activity: number | null;
+    any_opens: boolean;
+    last_outreach_at: string | null;
+  } | null;
+  latest_website_change: {
+    change_summary: string | null;
+    checked_at: string;
+  } | null;
+  recent_posts: {
+    id: string;
+    post_type: string | null;
+    posted_by: string | null;
+    post_content: string | null;
+    post_url: string | null;
+    posted_at: string | null;
+  }[];
+}
+
+function formatMoney(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined) return "\u2014";
+  if (amount >= 1_000_000_000) return `$${(amount / 1_000_000_000).toFixed(1)}B`;
+  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
+  if (amount >= 1_000) return `$${(amount / 1_000).toFixed(0)}K`;
+  return `$${amount}`;
+}
+
+function timeAgo(dateStr: string | null): string {
+  if (!dateStr) return "\u2014";
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "1d ago";
+  if (diffDays < 30) return `${diffDays}d ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
+  return `${Math.floor(diffDays / 365)}yr ago`;
+}
+
+export default function HVTPage() {
+  const [companies, setCompanies] = useState<HVTCompany[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const fetchCompanies = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/hvt");
+      const data = await res.json();
+      setCompanies(data);
+    } catch (err) {
+      console.error("Failed to fetch HVT companies:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCompanies();
+  }, [fetchCompanies]);
+
+  const formatGrowth = (growth: number | null) => {
+    if (growth === null || growth === undefined) return "\u2014";
+    const pct = (growth * 100).toFixed(0);
+    const isPositive = growth > 0;
+    return (
+      <span className={isPositive ? "text-emerald-400" : "text-red-400"}>
+        {isPositive ? "+" : ""}{pct}%
+      </span>
+    );
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-white">High Value Targets</h1>
+          <p className="text-gray-400 text-sm mt-1">Monitor and track high value targets. Click a row to expand intel.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-500">{companies.length} {companies.length === 1 ? "target" : "targets"}</span>
+          <button onClick={fetchCompanies} className="px-3 py-1.5 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors">Refresh</button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-20"><div className="text-gray-500">Loading HVT companies...</div></div>
+      ) : companies.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+          <span className="text-4xl mb-3">🎯</span>
+          <p className="text-lg font-medium">No high value targets yet</p>
+          <p className="text-sm mt-1">Classify companies as HVT in Do for Review to see them here.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-gray-800">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-800 bg-gray-900/50">
+                <th className="text-left py-3 px-4 font-medium text-gray-400">Company</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-400">Founded</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-400">Location</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-400">HC</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-400">1yr Growth</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-400">Raised</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-400">CEO</th>
+                <th className="text-center py-3 px-4 font-medium text-gray-400">Outreach</th>
+                <th className="text-center py-3 px-4 font-medium text-gray-400">Days Idle</th>
+                <th className="text-center py-3 px-4 font-medium text-gray-400">Opened</th>
+                <th className="text-center py-3 px-4 font-medium text-gray-400">Intel</th>
+              </tr>
+            </thead>
+            {companies.map((company) => {
+              const s = company.snapshot;
+              const o = company.outreach;
+              const isExpanded = expandedId === company.id;
+              const hasWebsiteChange = !!company.latest_website_change;
+              const hasPosts = company.recent_posts.length > 0;
+              const hasIntel = hasWebsiteChange || hasPosts;
+
+              return (
+                <tbody key={company.id}>
+                  <tr
+                    className={`border-b border-gray-800/50 transition-all duration-200 cursor-pointer ${isExpanded ? "bg-gray-900/50" : "hover:bg-gray-900/30"}`}
+                    onClick={() => setExpandedId(isExpanded ? null : company.id)}
+                  >
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500 text-xs mr-1 select-none">{isExpanded ? "\u25BE" : "\u25B8"}</span>
+                        {s?.website ? (
+                          <a href={s.website} target="_blank" rel="noopener noreferrer" className="text-white font-medium hover:text-blue-400 transition-colors" onClick={(e) => e.stopPropagation()}>{s?.name || "Unknown"}</a>
+                        ) : (
+                          <span className="text-white font-medium">{s?.name || "Unknown"}</span>
+                        )}
+                        {s?.pitchbook_url && (
+                          <a href={s.pitchbook_url} target="_blank" rel="noopener noreferrer" className="px-1 py-0.5 text-[10px] font-bold rounded bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white transition-colors" title="View on PitchBook" onClick={(e) => e.stopPropagation()}>PB</a>
+                        )}
+                        {s?.linkedin_url && (
+                          <a href={s.linkedin_url} target="_blank" rel="noopener noreferrer" className="px-1 py-0.5 text-[10px] font-bold rounded bg-gray-700 text-blue-400 hover:bg-gray-600 hover:text-blue-300 transition-colors" title="View on LinkedIn" onClick={(e) => e.stopPropagation()}>LI</a>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 text-gray-400">{s?.founded_year || "\u2014"}</td>
+                    <td className="py-3 px-4 text-gray-400">{s?.location || "\u2014"}</td>
+                    <td className="py-3 px-4 text-right text-gray-300 tabular-nums">{s?.headcount || "\u2014"}</td>
+                    <td className="py-3 px-4 text-right tabular-nums">{formatGrowth(s?.headcount_growth_1yr ?? null)}</td>
+                    <td className="py-3 px-4 text-right text-gray-300 tabular-nums">{formatMoney(s?.total_capital_raised)}</td>
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-300 text-xs">{s?.ceo_name || "\u2014"}</span>
+                        {s?.ceo_linkedin_url && (
+                          <a href={s.ceo_linkedin_url} target="_blank" rel="noopener noreferrer" className="px-1 py-0.5 text-[10px] font-bold rounded bg-gray-700 text-blue-400 hover:bg-gray-600 hover:text-blue-300 transition-colors" title="CEO LinkedIn" onClick={(e) => e.stopPropagation()}>LI</a>
+                        )}
+                        {s?.ceo_phone && <span className="text-[10px] text-gray-500" title={s.ceo_phone}>📞</span>}
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 text-center text-gray-300 tabular-nums">{o?.outreach_count ?? "\u2014"}</td>
+                    <td className="py-3 px-4 text-center tabular-nums">
+                      {o?.days_since_last_activity != null ? (
+                        <span className={o.days_since_last_activity > 14 ? "text-red-400" : o.days_since_last_activity > 7 ? "text-yellow-400" : "text-gray-300"}>
+                          {o.days_since_last_activity}d
+                        </span>
+                      ) : "\u2014"}
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      {o ? (o.any_opens ? <span className="text-emerald-400 text-xs font-medium">Yes</span> : <span className="text-gray-500 text-xs">No</span>) : "\u2014"}
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      {hasIntel ? (
+                        <div className="flex items-center justify-center gap-1">
+                          {hasWebsiteChange && <span className="w-2 h-2 rounded-full bg-amber-400" title="Website change detected" />}
+                          {hasPosts && <span className="w-2 h-2 rounded-full bg-blue-400" title={`${company.recent_posts.length} LinkedIn post${company.recent_posts.length === 1 ? "" : "s"}`} />}
+                        </div>
+                      ) : <span className="text-gray-600 text-xs">{"\u2014"}</span>}
+                    </td>
+                  </tr>
+
+                  {isExpanded && (
+                    <tr className="bg-gray-900/30">
+                      <td colSpan={11} className="px-4 py-4">
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pl-6">
+                          <div className="bg-gray-800/50 rounded-lg p-4">
+                            <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">What They Do</h4>
+                            <p className="text-sm text-gray-300 leading-relaxed">{s?.what_they_do || "No summary available."}</p>
+                            {s?.ceo_email && (
+                              <div className="mt-3 pt-3 border-t border-gray-700">
+                                <span className="text-xs text-gray-500">CEO Email: </span>
+                                <a href={`mailto:${s.ceo_email}`} className="text-xs text-blue-400 hover:text-blue-300" onClick={(e) => e.stopPropagation()}>{s.ceo_email}</a>
+                              </div>
+                            )}
+                            {s?.ceo_phone && (
+                              <div className="mt-1">
+                                <span className="text-xs text-gray-500">CEO Phone: </span>
+                                <span className="text-xs text-gray-300">{s.ceo_phone}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="bg-gray-800/50 rounded-lg p-4">
+                            <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Latest Website Change</h4>
+                            {company.latest_website_change ? (
+                              <>
+                                <p className="text-sm text-gray-300 leading-relaxed">{company.latest_website_change.change_summary || "Change detected but no summary."}</p>
+                                <p className="text-xs text-gray-500 mt-2">Detected {timeAgo(company.latest_website_change.checked_at)}</p>
+                              </>
+                            ) : (
+                              <p className="text-sm text-gray-500 italic">No website changes detected yet.</p>
+                            )}
+                          </div>
+
+                          <div className="bg-gray-800/50 rounded-lg p-4">
+                            <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Recent LinkedIn Posts</h4>
+                            {company.recent_posts.length > 0 ? (
+                              <div className="space-y-3">
+                                {company.recent_posts.map((post) => (
+                                  <div key={post.id} className="border-l-2 border-gray-700 pl-3">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${post.post_type === "ceo" ? "bg-purple-900/50 text-purple-300" : "bg-blue-900/50 text-blue-300"}`}>
+                                        {post.post_type === "ceo" ? "CEO" : "CO"}
+                                      </span>
+                                      <span className="text-xs text-gray-500">{post.posted_by}</span>
+                                      <span className="text-xs text-gray-600">{timeAgo(post.posted_at)}</span>
+                                    </div>
+                                    <p className="text-xs text-gray-400 line-clamp-2">{post.post_content}</p>
+                                    {post.post_url && (
+                                      <a href={post.post_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-400 hover:text-blue-300 mt-1 inline-block" onClick={(e) => e.stopPropagation()}>View post →</a>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-500 italic">No recent LinkedIn activity.</p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              );
+            })}
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
