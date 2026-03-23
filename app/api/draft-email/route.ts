@@ -290,6 +290,7 @@ export async function POST(request: NextRequest) {
     `Location: ${snapshot.pb_hq_city || snapshot.location || "N/A"}`,
     `Founded: ${snapshot.founded_year || "N/A"}`,
     `Employees: ${snapshot.headcount || snapshot.pb_employees || "N/A"}`,
+    `Google Ad Competitors: ${snapshot.google_ad_competitors?.join(", ") || "None found via Google Ads"}`,
   ].join("\n");
 
   // Load prompt template and fill in variables
@@ -307,6 +308,7 @@ export async function POST(request: NextRequest) {
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 2000,
+      temperature: 0,
       messages: [
         {
           role: "user",
