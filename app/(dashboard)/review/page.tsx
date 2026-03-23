@@ -235,6 +235,11 @@ export default function ReviewPage() {
   const [failedReasonFilter, setFailedReasonFilter] = useState<string | null>(null);
   const [passedSort, setPassedSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "name", dir: "asc" });
   const [overrides, setOverrides] = useState<Set<string>>(new Set());
+  const [pipelineStats, setPipelineStats] = useState<{
+    total: number;
+    linkedin: { scraped: number; passed: number; failed: number; remaining: number };
+    llm: { total: number; evaluated: number; passed: number; failed: number; remaining: number };
+  } | null>(null);
   const [lastIngest, setLastIngest] = useState<{ last_run_at: string | null; stats: { new: number; updated: number; skipped: number; errors: number } | null; file_name?: string } | null>(null);
   const [ingesting, setIngesting] = useState(false);
   const [ingestStatus, setIngestStatus] = useState<string | null>(null);
@@ -310,8 +315,22 @@ export default function ReviewPage() {
     }
   }, []);
 
+  const fetchPipelineStats = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/pipeline-stats?t=${Date.now()}`);
+      if (res.ok) setPipelineStats(await res.json());
+    } catch { /* ignore */ }
+  }, []);
+
   useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
   useEffect(() => { fetchIngestMeta(); }, [fetchIngestMeta]);
+  useEffect(() => { fetchPipelineStats(); }, [fetchPipelineStats]);
+  // Auto-refresh pipeline stats every 10 seconds if there's remaining work
+  useEffect(() => {
+    if (!pipelineStats || (pipelineStats.linkedin.remaining === 0 && pipelineStats.llm.remaining <= 0)) return;
+    const interval = setInterval(fetchPipelineStats, 10000);
+    return () => clearInterval(interval);
+  }, [pipelineStats, fetchPipelineStats]);
 
   // Split companies: passed = both HC and LLM are explicitly true
   // Failed/filtered = either filter is false, or not yet evaluated (null)
@@ -521,7 +540,7 @@ export default function ReviewPage() {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-500">
-            {passedCompanies.length} passed{failedCompaniesRaw.length > 0 ? ` · ${failedCompaniesRaw.length} filtered out` : ""}{pendingEvalCount > 0 ? ` · ${pendingEvalCount} not yet AI evaluated` : ""}
+            {passedCompanies.length} passed{failedCompaniesRaw.length > 0 ? ` · ${failedCompaniesRaw.length} filtered out` : ""}{pendingEvalCount > 0 ? ` · ${pendingEvalCount} pending` : ""}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -554,6 +573,55 @@ export default function ReviewPage() {
           )}
         </div>
       </div>
+
+      {/* Pipeline progress tracker — auto-refreshes every 10s */}
+      {pipelineStats && (pipelineStats.linkedin.remaining > 0 || pipelineStats.llm.remaining > 0) && (
+        <div className="mb-4 px-4 py-3 rounded-lg bg-gray-900/50 border border-gray-800/50">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+              <span className="text-xs font-medium text-gray-400">Pipeline Progress</span>
+            </div>
+            <span className="text-xs text-gray-500">{pipelineStats.total.toLocaleString()} total companies</span>
+          </div>
+          <div className="flex gap-6">
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-gray-500">LinkedIn Scrape</span>
+                <span className="text-xs tabular-nums text-gray-400">
+                  {pipelineStats.linkedin.scraped.toLocaleString()}/{pipelineStats.total.toLocaleString()}
+                  {pipelineStats.linkedin.remaining > 0 && (
+                    <span className="text-cyan-500 ml-1">({pipelineStats.linkedin.remaining.toLocaleString()} remaining)</span>
+                  )}
+                </span>
+              </div>
+              <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-cyan-500 rounded-full transition-all duration-1000"
+                  style={{ width: `${Math.round((pipelineStats.linkedin.scraped / pipelineStats.total) * 100)}%` }}
+                />
+              </div>
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-gray-500">LLM Survey</span>
+                <span className="text-xs tabular-nums text-gray-400">
+                  {pipelineStats.llm.evaluated.toLocaleString()}/{pipelineStats.llm.total.toLocaleString()}
+                  {pipelineStats.llm.remaining > 0 && (
+                    <span className="text-purple-400 ml-1">({pipelineStats.llm.remaining.toLocaleString()} remaining)</span>
+                  )}
+                </span>
+              </div>
+              <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-purple-500 rounded-full transition-all duration-1000"
+                  style={{ width: `${pipelineStats.llm.total > 0 ? Math.round((pipelineStats.llm.evaluated / pipelineStats.llm.total) * 100) : 0}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {draftStatus && (
         <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${draftStatus.includes("failed") ? "bg-red-900/30 text-red-300" : draftStatus.includes("created") ? "bg-emerald-900/30 text-emerald-300" : "bg-blue-900/30 text-blue-300"}`}>
