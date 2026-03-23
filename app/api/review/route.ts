@@ -5,41 +5,60 @@ import { NextRequest, NextResponse } from "next/server";
 export async function GET() {
   const supabase = await createClient();
 
-  // Get companies that are pending (in the review queue)
-  const { data: companies, error: companiesError } = await supabase
-    .from("companies")
-    .select("*")
-    .eq("status", "pending")
-    .order("created_at", { ascending: true });
+  // Fetch pending companies with pagination (Supabase default limit is 1000)
+  const allCompanies: Record<string, unknown>[] = [];
+  let page = 0;
+  const pageSize = 1000;
 
-  if (companiesError) {
-    return NextResponse.json({ error: companiesError.message }, { status: 500 });
+  while (true) {
+    const { data, error } = await supabase
+      .from("companies")
+      .select("*")
+      .eq("status", "pending")
+      .order("created_at", { ascending: true })
+      .range(page * pageSize, (page + 1) * pageSize - 1);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (!data || data.length === 0) break;
+    allCompanies.push(...data);
+    if (data.length < pageSize) break;
+    page++;
   }
 
-  if (!companies || companies.length === 0) {
+  if (allCompanies.length === 0) {
     return NextResponse.json([]);
   }
 
-  // Get latest snapshots for these companies
-  const companyIds = companies.map((c) => c.id);
-  const { data: snapshots, error: snapshotsError } = await supabase
-    .from("company_snapshots")
-    .select("*")
-    .in("company_id", companyIds)
-    .eq("is_latest", true);
+  // Fetch snapshots in batches of 500 IDs (URL length limit)
+  const allSnapshots: Record<string, unknown>[] = [];
+  const companyIds = allCompanies.map((c) => c.id as string);
 
-  if (snapshotsError) {
-    return NextResponse.json({ error: snapshotsError.message }, { status: 500 });
+  for (let i = 0; i < companyIds.length; i += 500) {
+    const batchIds = companyIds.slice(i, i + 500);
+    const { data: snapshots, error: snapshotsError } = await supabase
+      .from("company_snapshots")
+      .select("*")
+      .in("company_id", batchIds)
+      .eq("is_latest", true);
+
+    if (snapshotsError) {
+      return NextResponse.json({ error: snapshotsError.message }, { status: 500 });
+    }
+
+    if (snapshots) allSnapshots.push(...snapshots);
   }
 
   // Join companies with their snapshots
   const snapshotMap = new Map(
-    (snapshots || []).map((s) => [s.company_id, s])
+    allSnapshots.map((s) => [s.company_id as string, s])
   );
 
-  const result = companies.map((company) => ({
+  const result = allCompanies.map((company) => ({
     ...company,
-    snapshot: snapshotMap.get(company.id) || null,
+    snapshot: snapshotMap.get(company.id as string) || null,
   }));
 
   return NextResponse.json(result);
