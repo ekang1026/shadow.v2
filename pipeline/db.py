@@ -99,23 +99,41 @@ def get_companies_with_latest_snapshots(status: Optional[str] = None) -> list[di
     """
     Fetch companies joined with their latest snapshot.
     Optionally filter by status.
+    Handles 1000+ companies with pagination and batched snapshot queries.
     """
     sb = get_supabase()
 
-    query = sb.table("companies").select("*")
-    if status:
-        query = query.eq("status", status)
-    companies = query.execute().data or []
+    # Paginate companies (Supabase default limit is 1000)
+    companies = []
+    page = 0
+    page_size = 1000
+    while True:
+        query = sb.table("companies").select("*")
+        if status:
+            query = query.eq("status", status)
+        result = query.range(page * page_size, (page + 1) * page_size - 1).execute()
+        if not result.data:
+            break
+        companies.extend(result.data)
+        if len(result.data) < page_size:
+            break
+        page += 1
 
     if not companies:
         return []
 
+    # Batch snapshot queries in groups of 500 (URL length limit)
     company_ids = [c["id"] for c in companies]
-    snapshots = sb.table("company_snapshots") \
-        .select("*") \
-        .in_("company_id", company_ids) \
-        .eq("is_latest", True) \
-        .execute().data or []
+    snapshots = []
+    for i in range(0, len(company_ids), 500):
+        batch_ids = company_ids[i:i+500]
+        result = sb.table("company_snapshots") \
+            .select("*") \
+            .in_("company_id", batch_ids) \
+            .eq("is_latest", True) \
+            .execute()
+        if result.data:
+            snapshots.extend(result.data)
 
     snapshot_map = {s["company_id"]: s for s in snapshots}
 
