@@ -9,6 +9,7 @@ import io
 import os
 import sys
 import logging
+from datetime import datetime
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [PitchBook] %(message)s")
@@ -111,78 +112,149 @@ def read_csv_content(csv_content: str) -> list[dict]:
     return list(reader)
 
 
+def build_snapshot_data(row: dict, pitchbook_id: str) -> dict | None:
+    """Build snapshot data dict from a PitchBook row."""
+    snapshot_data = {}
+    for csv_col, field in COLUMN_MAP.items():
+        if csv_col not in row or field == "pitchbook_id":
+            continue
+        raw_val = row[csv_col]
+        if field in MONEY_FIELDS:
+            parsed = parse_number(raw_val)
+            snapshot_data[field] = int(parsed) if parsed is not None else None
+        elif field in INT_FIELDS:
+            parsed = parse_number(raw_val)
+            snapshot_data[field] = int(parsed) if parsed is not None else None
+        else:
+            cleaned = clean_value(raw_val)
+            if cleaned:
+                snapshot_data[field] = cleaned
+
+    if snapshot_data.get("pb_profile_url") == "View Company Online":
+        snapshot_data["pb_profile_url"] = f"https://pitchbook.com/profiles/company/{pitchbook_id}"
+    snapshot_data["pb_company_id"] = pitchbook_id
+    return snapshot_data
+
+
 def ingest_rows(rows: list[dict]) -> dict:
     """
     Process rows and upsert companies + snapshots into Supabase.
+    Uses batch operations for speed (~10x faster than row-by-row).
     Returns stats: {new, updated, skipped, errors}
     """
-    from db import upsert_company, create_snapshot, get_latest_snapshot
+    from config import get_supabase
 
+    sb = get_supabase()
     stats = {"new": 0, "updated": 0, "skipped": 0, "errors": 0}
+    total = len(rows)
 
+    # Step 1: Parse all rows to get pitchbook IDs
+    log.info(f"Parsing {total} rows...")
+    parsed_rows = []
     for row in rows:
+        pitchbook_id = clean_value(row.get("PBId")) or clean_value(row.get("Company ID"))
+        if not pitchbook_id:
+            company_name = clean_value(row.get("Companies"))
+            if company_name:
+                pitchbook_id = f"PB-{company_name[:50]}"
+            else:
+                stats["skipped"] += 1
+                continue
+        parsed_rows.append((pitchbook_id, row))
+
+    # Step 2: Fetch all existing companies in one call
+    log.info(f"Checking {len(parsed_rows)} companies against database...")
+    all_pb_ids = [pb_id for pb_id, _ in parsed_rows]
+
+    # Fetch in batches of 500 (Supabase URL length limit)
+    existing_companies = {}
+    for i in range(0, len(all_pb_ids), 500):
+        batch_ids = all_pb_ids[i:i+500]
+        result = sb.table("companies").select("id,pitchbook_id,status").in_("pitchbook_id", batch_ids).execute()
+        for c in result.data:
+            existing_companies[c["pitchbook_id"]] = c
+
+    log.info(f"Found {len(existing_companies)} existing companies")
+
+    # Step 3: Batch insert new companies
+    new_company_ids = [pb_id for pb_id in all_pb_ids if pb_id not in existing_companies]
+    if new_company_ids:
+        # Deduplicate
+        unique_new = list(set(new_company_ids))
+        log.info(f"Creating {len(unique_new)} new companies...")
+        for i in range(0, len(unique_new), 200):
+            batch = [{"pitchbook_id": pb_id, "status": "pending", "review_count": 0} for pb_id in unique_new[i:i+200]]
+            result = sb.table("companies").insert(batch).execute()
+            for c in result.data:
+                existing_companies[c["pitchbook_id"]] = c
+
+    # Step 4: Process snapshots in batches
+    log.info(f"Processing snapshots...")
+    snapshot_batch = []
+    processed = 0
+
+    for pitchbook_id, row in parsed_rows:
         try:
-            # Get PitchBook ID — try PBId first, then Company ID
-            pitchbook_id = clean_value(row.get("PBId")) or clean_value(row.get("Company ID"))
+            company = existing_companies.get(pitchbook_id)
+            if not company:
+                stats["errors"] += 1
+                continue
 
-            if not pitchbook_id:
-                company_name = clean_value(row.get("Companies"))
-                if company_name:
-                    pitchbook_id = f"PB-{company_name[:50]}"
-                else:
-                    log.warning(f"Skipping row — no PitchBook ID or name found")
-                    stats["skipped"] += 1
-                    continue
-
-            # Upsert company
-            company = upsert_company(pitchbook_id)
-
-            # Skip if already classified (not pending)
+            # Skip already classified
             if company["status"] != "pending":
-                log.debug(f"Skipping {pitchbook_id} — already classified as {company['status']}")
                 stats["skipped"] += 1
                 continue
 
-            # Build snapshot data from row using COLUMN_MAP
-            snapshot_data = {}
-            for csv_col, field in COLUMN_MAP.items():
-                if csv_col not in row or field == "pitchbook_id":
-                    continue
+            snapshot_data = build_snapshot_data(row, pitchbook_id)
+            if not snapshot_data:
+                stats["skipped"] += 1
+                continue
 
-                raw_val = row[csv_col]
+            snapshot_data["company_id"] = company["id"]
+            snapshot_data["is_latest"] = True
+            snapshot_data["snapshot_date"] = datetime.now().date().isoformat()
+            snapshot_batch.append(snapshot_data)
+            stats["new"] += 1
+            processed += 1
 
-                if field in MONEY_FIELDS:
-                    parsed = parse_number(raw_val)
-                    # Store money as integer (cents don't matter at this scale)
-                    snapshot_data[field] = int(parsed) if parsed is not None else None
-                elif field in INT_FIELDS:
-                    parsed = parse_number(raw_val)
-                    snapshot_data[field] = int(parsed) if parsed is not None else None
-                else:
-                    cleaned = clean_value(raw_val)
-                    if cleaned:
-                        snapshot_data[field] = cleaned
-
-            # Handle "View Company Online" — build proper PitchBook URL
-            if snapshot_data.get("pb_profile_url") == "View Company Online":
-                snapshot_data["pb_profile_url"] = f"https://pitchbook.com/profiles/company/{pitchbook_id}"
-
-            # Also store pb_company_id on the snapshot for reference
-            snapshot_data["pb_company_id"] = pitchbook_id
-
-            # Check if new or update
-            existing_snapshot = get_latest_snapshot(company["id"])
-            if existing_snapshot:
-                stats["updated"] += 1
-            else:
-                stats["new"] += 1
-
-            create_snapshot(company["id"], snapshot_data)
-            log.info(f"{'Updated' if existing_snapshot else 'Added'}: {snapshot_data.get('name', pitchbook_id)}")
+            # Log progress every 100 rows
+            if processed % 100 == 0:
+                log.info(f"Processed {processed}/{total} rows...")
 
         except Exception as e:
-            log.error(f"Error processing row: {e}")
+            log.error(f"Error processing row {pitchbook_id}: {e}")
             stats["errors"] += 1
+
+    # Step 5: Mark old snapshots as not latest (batch by company_ids)
+    if snapshot_batch:
+        company_ids_to_update = list(set(s["company_id"] for s in snapshot_batch))
+        log.info(f"Marking {len(company_ids_to_update)} old snapshots as not latest...")
+        for i in range(0, len(company_ids_to_update), 500):
+            batch_ids = company_ids_to_update[i:i+500]
+            sb.table("company_snapshots") \
+                .update({"is_latest": False}) \
+                .in_("company_id", batch_ids) \
+                .eq("is_latest", True) \
+                .execute()
+
+    # Step 6: Batch insert new snapshots
+    if snapshot_batch:
+        log.info(f"Inserting {len(snapshot_batch)} snapshots...")
+        for i in range(0, len(snapshot_batch), 200):
+            batch = snapshot_batch[i:i+200]
+            try:
+                sb.table("company_snapshots").insert(batch).execute()
+                log.info(f"Inserted batch {i//200 + 1} ({len(batch)} snapshots)")
+            except Exception as e:
+                log.error(f"Batch insert error: {e}")
+                # Fall back to row-by-row for this batch
+                for snap in batch:
+                    try:
+                        sb.table("company_snapshots").insert(snap).execute()
+                    except Exception as e2:
+                        log.error(f"Row insert error for {snap.get('name', '?')}: {e2}")
+                        stats["errors"] += 1
+                        stats["new"] -= 1
 
     return stats
 

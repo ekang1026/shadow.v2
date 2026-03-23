@@ -236,64 +236,28 @@ export default function ReviewPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch("/api/ingest", { method: "POST", body: formData });
+      const res = await fetch("/api/ingest", {
+        method: "POST",
+        body: formData,
+        signal: AbortSignal.timeout(600000), // 10 minute timeout for large files
+      });
+      const data = await res.json();
 
-      // Check if it's an SSE stream
-      if (res.headers.get("content-type")?.includes("text/event-stream")) {
-        const reader = res.body?.getReader();
-        const decoder = new TextDecoder();
-        if (!reader) throw new Error("No reader available");
-
-        let buffer = "";
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n\n");
-          buffer = lines.pop() || "";
-
-          for (const chunk of lines) {
-            if (!chunk.startsWith("data: ")) continue;
-            try {
-              const event = JSON.parse(chunk.replace("data: ", ""));
-              if (event.type === "log") {
-                setIngestLogs((prev) => [...prev, event.message]);
-                // Auto-scroll log panel
-                setTimeout(() => {
-                  logPanelRef.current?.scrollTo({ top: logPanelRef.current.scrollHeight });
-                }, 10);
-              } else if (event.type === "start") {
-                setIngestStatus(event.message);
-              } else if (event.type === "error") {
-                setIngestLogs((prev) => [...prev, `ERROR: ${event.message}`]);
-              } else if (event.type === "complete") {
-                setIngestSummary({
-                  ...event.stats,
-                  duration_seconds: event.duration_seconds,
-                  file_name: event.file_name,
-                });
-                if (event.status === "completed") {
-                  setIngestStatus(`Ingestion complete: ${event.stats.new} new, ${event.stats.updated} updated, ${event.stats.skipped} skipped`);
-                } else {
-                  setIngestStatus("Ingestion failed");
-                }
-                fetchCompanies();
-                fetchIngestMeta();
-              }
-            } catch {}
-          }
+      if (res.ok && data.success) {
+        // Show logs from the pipeline
+        if (data.logs && data.logs.length > 0) {
+          setIngestLogs(data.logs);
         }
+        setIngestSummary({
+          ...data.stats,
+          duration_seconds: data.duration_seconds,
+          file_name: data.file_name,
+        });
+        setIngestStatus(`Ingestion complete: ${data.stats.new} new, ${data.stats.updated} updated, ${data.stats.skipped} skipped`);
+        fetchCompanies();
+        fetchIngestMeta();
       } else {
-        // Fallback for non-streaming response
-        const data = await res.json();
-        if (res.ok && data.success) {
-          setIngestStatus(`Ingested ${file.name}: ${data.stats.new} new, ${data.stats.updated} updated, ${data.stats.skipped} skipped`);
-          fetchCompanies();
-          fetchIngestMeta();
-        } else {
-          setIngestStatus(`Ingest failed: ${data.error}`);
-        }
+        setIngestStatus(`Ingest failed: ${data.error}`);
       }
     } catch (err) {
       console.error("Ingest failed:", err);
