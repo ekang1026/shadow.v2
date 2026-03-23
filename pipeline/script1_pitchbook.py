@@ -1,6 +1,7 @@
 """
 Script 1 — PitchBook Ingestion
-Navigates to PitchBook saved search URL via Playwright, exports CSV, and ingests companies.
+Reads PitchBook Excel/CSV export and ingests companies into Supabase.
+Supports both .xlsx and .csv formats.
 """
 
 import csv
@@ -14,31 +15,62 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [PitchBook] %(messag
 log = logging.getLogger(__name__)
 
 
-# CSV column mapping — maps PitchBook CSV headers to our snapshot fields
-# Adjust these mappings based on your actual PitchBook export columns
+# Maps PitchBook export column headers → snapshot database fields
+# All PitchBook-sourced fields use pb_ prefix to distinguish from scraped data
 COLUMN_MAP = {
-    "Company Name": "name",
-    "PitchBook ID": "pitchbook_id",
-    "Website": "website",
-    "LinkedIn": "linkedin_url",
-    "PitchBook URL": "pitchbook_url",
-    "CEO Name": "ceo_name",
-    "CEO LinkedIn": "ceo_linkedin_url",
-    "Year Founded": "founded_year",
+    # Identity
+    "Companies": "name",
+    "Company ID": "pb_company_id",
+    "PBId": "pitchbook_id",           # Used as the unique key on companies table
+    "Company Legal Name": "pb_legal_name",
+    "Description": "pb_description",
+
+    # Location
     "HQ Location": "location",
-    "Employees": "headcount",
+    "HQ City": "pb_hq_city",
+    "HQ State/Province": "pb_hq_state",
+
+    # Company details
+    "Year Founded": "founded_year",
+    "Employees": "pb_employees",       # PitchBook headcount (unreliable — LinkedIn scrape is trusted)
+    "Keywords": "pb_keywords",
+    "Financing Status Note": "pb_financing_status",
+
+    # Funding
     "Total Raised": "total_capital_raised",
-    "Last Round Valuation": "last_round_valuation",
-    "Last Round Size": "last_round_amount_raised",
-    "Investors": "previous_investors",
+    "Last Known Valuation": "last_round_valuation",
+    "Last Known Valuation Date": "pb_valuation_date",
+    "Last Financing Date": "pb_last_financing_date",
+    "Last Financing Size": "pb_last_financing_size",
+    "Active Investors": "pb_active_investors",
+
+    # URLs
+    "Website": "website",
+    "LinkedIn URL": "linkedin_url",
+    "View Company Online": "pb_profile_url",
+
+    # Primary contact
+    "Primary Contact": "pb_primary_contact",
+    "Primary Contact Email": "pb_primary_contact_email",
+    "Primary Contact Phone": "pb_primary_contact_phone",
+    "Primary Contact Title": "pb_primary_contact_title",
 }
 
+# Fields that should be parsed as numbers (currency amounts)
+MONEY_FIELDS = {"total_capital_raised", "last_round_valuation", "pb_last_financing_size"}
 
-def parse_number(val: str) -> int | None:
+# Fields that should be parsed as integers
+INT_FIELDS = {"founded_year", "pb_employees"}
+
+
+def parse_number(val) -> int | float | None:
     """Parse a number from PitchBook format (e.g., '$5M', '5,000', etc.)."""
-    if not val or val.strip() in ("", "-", "N/A"):
+    if val is None:
         return None
-    val = val.strip().replace(",", "").replace("$", "").replace(" ", "")
+    val = str(val).strip()
+    if not val or val in ("", "-", "N/A", "nan", "None"):
+        return None
+    val = val.replace(",", "").replace("$", "").replace(" ", "")
     multiplier = 1
     if val.upper().endswith("B"):
         multiplier = 1_000_000_000
@@ -50,16 +82,107 @@ def parse_number(val: str) -> int | None:
         multiplier = 1_000
         val = val[:-1]
     try:
-        return int(float(val) * multiplier)
+        result = float(val) * multiplier
+        return int(result) if result == int(result) else result
     except ValueError:
         return None
 
 
-def parse_investors(val: str) -> list[str] | None:
-    """Parse investor string into array."""
-    if not val or val.strip() in ("", "-", "N/A"):
+def clean_value(val) -> str | None:
+    """Clean a string value from PitchBook. Returns None for empty/NaN."""
+    if val is None:
         return None
-    return [inv.strip() for inv in val.split(",") if inv.strip()]
+    val = str(val).strip()
+    if val in ("", "-", "N/A", "nan", "None", "NaN"):
+        return None
+    return val
+
+
+def read_excel(file_path: str) -> list[dict]:
+    """Read a PitchBook .xlsx file. Data starts at row 9 (header row 8, 0-indexed row 7)."""
+    import pandas as pd
+    df = pd.read_excel(file_path, header=7)  # Row 8 is header (0-indexed: 7)
+    return df.to_dict(orient="records")
+
+
+def read_csv_content(csv_content: str) -> list[dict]:
+    """Read CSV content string into list of dicts."""
+    reader = csv.DictReader(io.StringIO(csv_content))
+    return list(reader)
+
+
+def ingest_rows(rows: list[dict]) -> dict:
+    """
+    Process rows and upsert companies + snapshots into Supabase.
+    Returns stats: {new, updated, skipped, errors}
+    """
+    from db import upsert_company, create_snapshot, get_latest_snapshot
+
+    stats = {"new": 0, "updated": 0, "skipped": 0, "errors": 0}
+
+    for row in rows:
+        try:
+            # Get PitchBook ID — try PBId first, then Company ID
+            pitchbook_id = clean_value(row.get("PBId")) or clean_value(row.get("Company ID"))
+
+            if not pitchbook_id:
+                company_name = clean_value(row.get("Companies"))
+                if company_name:
+                    pitchbook_id = f"PB-{company_name[:50]}"
+                else:
+                    log.warning(f"Skipping row — no PitchBook ID or name found")
+                    stats["skipped"] += 1
+                    continue
+
+            # Upsert company
+            company = upsert_company(pitchbook_id)
+
+            # Skip if already classified (not pending)
+            if company["status"] != "pending":
+                log.debug(f"Skipping {pitchbook_id} — already classified as {company['status']}")
+                stats["skipped"] += 1
+                continue
+
+            # Build snapshot data from row using COLUMN_MAP
+            snapshot_data = {}
+            for csv_col, field in COLUMN_MAP.items():
+                if csv_col not in row or field == "pitchbook_id":
+                    continue
+
+                raw_val = row[csv_col]
+
+                if field in MONEY_FIELDS:
+                    snapshot_data[field] = parse_number(raw_val)
+                elif field in INT_FIELDS:
+                    parsed = parse_number(raw_val)
+                    snapshot_data[field] = int(parsed) if parsed is not None else None
+                else:
+                    cleaned = clean_value(raw_val)
+                    if cleaned:
+                        snapshot_data[field] = cleaned
+
+            # Handle "View Company Online" — build proper PitchBook URL
+            if snapshot_data.get("pb_profile_url") == "View Company Online":
+                snapshot_data["pb_profile_url"] = f"https://pitchbook.com/profiles/company/{pitchbook_id}"
+
+            # Also store pb_company_id on the snapshot for reference
+            snapshot_data["pb_company_id"] = pitchbook_id
+
+            # Check if new or update
+            existing_snapshot = get_latest_snapshot(company["id"])
+            if existing_snapshot:
+                stats["updated"] += 1
+            else:
+                stats["new"] += 1
+
+            create_snapshot(company["id"], snapshot_data)
+            log.info(f"{'Updated' if existing_snapshot else 'Added'}: {snapshot_data.get('name', pitchbook_id)}")
+
+        except Exception as e:
+            log.error(f"Error processing row: {e}")
+            stats["errors"] += 1
+
+    return stats
 
 
 def download_csv_from_pitchbook() -> str:
@@ -78,38 +201,31 @@ def download_csv_from_pitchbook() -> str:
     log.info("Launching browser for PitchBook export...")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)  # headless=False for debugging
+        browser = p.chromium.launch(headless=False)
         context = browser.new_context()
         page = context.new_page()
 
-        # Navigate to PitchBook login
         page.goto("https://pitchbook.com/login")
         page.wait_for_load_state("networkidle")
 
-        # Fill login form
         page.fill('input[name="email"], input[type="email"]', PITCHBOOK_EMAIL)
         page.fill('input[name="password"], input[type="password"]', PITCHBOOK_PASSWORD)
         page.click('button[type="submit"]')
         page.wait_for_load_state("networkidle")
         log.info("Logged into PitchBook")
 
-        # Navigate to saved search
         page.goto(PITCHBOOK_SEARCH_URL)
         page.wait_for_load_state("networkidle")
         log.info("Navigated to saved search")
 
-        # Look for export/download button and click it
-        # PitchBook UI may vary — adjust selectors as needed
         download_path = os.path.join(os.path.dirname(__file__), "downloads")
         os.makedirs(download_path, exist_ok=True)
 
         with page.expect_download() as download_info:
-            # Try common export button selectors
             export_btn = page.locator('button:has-text("Export"), button:has-text("Download"), [data-testid="export"]')
             if export_btn.count() > 0:
                 export_btn.first.click()
             else:
-                # Fallback: look for a menu with export option
                 page.click('button:has-text("Actions"), button:has-text("More")')
                 page.click('text=Export to CSV, text=Download CSV, text=Export')
 
@@ -124,88 +240,28 @@ def download_csv_from_pitchbook() -> str:
             return f.read()
 
 
-def ingest_csv(csv_content: str) -> dict:
-    """
-    Parse CSV content and upsert companies + snapshots into Supabase.
-    Returns stats: {new, updated, skipped}
-    """
-    from db import upsert_company, create_snapshot, get_latest_snapshot
-
-    reader = csv.DictReader(io.StringIO(csv_content))
-    stats = {"new": 0, "updated": 0, "skipped": 0, "errors": 0}
-
-    for row in reader:
-        try:
-            # Find pitchbook_id from the row
-            pitchbook_id = None
-            for csv_col, field in COLUMN_MAP.items():
-                if field == "pitchbook_id" and csv_col in row:
-                    pitchbook_id = row[csv_col].strip()
-                    break
-
-            if not pitchbook_id:
-                # Try to generate from company name if no PB ID column
-                name_col = next((k for k in row if "name" in k.lower()), None)
-                if name_col:
-                    pitchbook_id = f"PB-{row[name_col].strip()[:50]}"
-                else:
-                    log.warning(f"Skipping row — no PitchBook ID found: {row}")
-                    stats["skipped"] += 1
-                    continue
-
-            # Upsert company
-            company = upsert_company(pitchbook_id)
-
-            # Skip if already classified (not pending)
-            if company["status"] != "pending":
-                log.debug(f"Skipping {pitchbook_id} — already classified as {company['status']}")
-                stats["skipped"] += 1
-                continue
-
-            # Build snapshot data from CSV row
-            snapshot_data = {}
-            for csv_col, field in COLUMN_MAP.items():
-                if csv_col in row and field != "pitchbook_id":
-                    val = row[csv_col].strip()
-                    if field in ("headcount", "founded_year"):
-                        snapshot_data[field] = parse_number(val)
-                    elif field in ("total_capital_raised", "last_round_valuation", "last_round_amount_raised"):
-                        snapshot_data[field] = parse_number(val)
-                    elif field == "previous_investors":
-                        snapshot_data[field] = parse_investors(val)
-                    elif val and val not in ("-", "N/A"):
-                        snapshot_data[field] = val
-
-            # Check if this is a new company or update
-            existing_snapshot = get_latest_snapshot(company["id"])
-            if existing_snapshot:
-                stats["updated"] += 1
-            else:
-                stats["new"] += 1
-
-            create_snapshot(company["id"], snapshot_data)
-            log.info(f"{'Updated' if existing_snapshot else 'Added'}: {snapshot_data.get('name', pitchbook_id)}")
-
-        except Exception as e:
-            log.error(f"Error processing row: {e}")
-            stats["errors"] += 1
-
-    return stats
-
-
-def run(csv_file: str = None) -> dict:
+def run(file_path: str = None) -> dict:
     """
     Main entry point.
-    If csv_file is provided, reads from file. Otherwise downloads from PitchBook.
+    Accepts .xlsx or .csv file path, or downloads from PitchBook if no file given.
     """
-    if csv_file:
-        log.info(f"Reading from local CSV: {csv_file}")
-        with open(csv_file, "r", encoding="utf-8") as f:
-            csv_content = f.read()
+    if file_path:
+        ext = Path(file_path).suffix.lower()
+        log.info(f"Reading from local file: {file_path}")
+
+        if ext in (".xlsx", ".xls"):
+            rows = read_excel(file_path)
+        elif ext == ".csv":
+            with open(file_path, "r", encoding="utf-8") as f:
+                rows = read_csv_content(f.read())
+        else:
+            raise ValueError(f"Unsupported file format: {ext}. Use .xlsx or .csv")
     else:
         csv_content = download_csv_from_pitchbook()
+        rows = read_csv_content(csv_content)
 
-    stats = ingest_csv(csv_content)
+    log.info(f"Found {len(rows)} rows to process")
+    stats = ingest_rows(rows)
 
     log.info(f"PitchBook ingestion complete: {stats['new']} new, {stats['updated']} updated, "
              f"{stats['skipped']} skipped, {stats['errors']} errors")
@@ -213,6 +269,5 @@ def run(csv_file: str = None) -> dict:
 
 
 if __name__ == "__main__":
-    # Allow passing a local CSV file for testing
-    csv_path = sys.argv[1] if len(sys.argv) > 1 else None
-    run(csv_file=csv_path)
+    file_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    run(file_path=file_arg)

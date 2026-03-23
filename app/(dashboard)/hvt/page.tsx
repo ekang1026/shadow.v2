@@ -17,6 +17,7 @@ interface HVTCompany {
     ceo_phone: string | null;
     founded_year: number | null;
     location: string | null;
+    pb_hq_city: string | null;
     headcount: number | null;
     headcount_growth_1yr: number | null;
     total_capital_raised: number | null;
@@ -125,7 +126,7 @@ export default function HVTPage() {
               <tr className="border-b border-gray-800 bg-gray-900/50">
                 <th className="text-left py-3 px-4 font-medium text-gray-400">Company</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-400">Founded</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-400">Location</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-400">HQ City</th>
                 <th className="text-right py-3 px-4 font-medium text-gray-400">HC</th>
                 <th className="text-right py-3 px-4 font-medium text-gray-400">1yr Growth</th>
                 <th className="text-right py-3 px-4 font-medium text-gray-400">Raised</th>
@@ -167,7 +168,7 @@ export default function HVTPage() {
                       </div>
                     </td>
                     <td className="py-3 px-4 text-gray-400">{s?.founded_year || "\u2014"}</td>
-                    <td className="py-3 px-4 text-gray-400">{s?.location || "\u2014"}</td>
+                    <td className="py-3 px-4 text-gray-400">{s?.pb_hq_city || s?.location || "\u2014"}</td>
                     <td className="py-3 px-4 text-right text-gray-300 tabular-nums">{s?.headcount || "\u2014"}</td>
                     <td className="py-3 px-4 text-right tabular-nums">{formatGrowth(s?.headcount_growth_1yr ?? null)}</td>
                     <td className="py-3 px-4 text-right text-gray-300 tabular-nums">{formatMoney(s?.total_capital_raised)}</td>

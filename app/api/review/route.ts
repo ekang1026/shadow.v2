@@ -111,5 +111,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: historyError.message }, { status: 500 });
   }
 
-  return NextResponse.json({ success: true, classification, requeueDate });
+  // If classified as HVT, trigger email draft creation
+  let emailDraft = null;
+  if (classification === "HVT") {
+    try {
+      const baseUrl = request.nextUrl.origin;
+      const draftRes = await fetch(`${baseUrl}/api/draft-email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: request.headers.get("cookie") || "",
+        },
+        body: JSON.stringify({ companyId }),
+      });
+      if (draftRes.ok) {
+        emailDraft = await draftRes.json();
+      } else {
+        const err = await draftRes.json();
+        console.error("Email draft failed:", err);
+        emailDraft = { error: err.error || "Draft creation failed" };
+      }
+    } catch (err) {
+      console.error("Email draft error:", err);
+      emailDraft = { error: "Draft creation failed" };
+    }
+  }
+
+  return NextResponse.json({ success: true, classification, requeueDate, emailDraft });
 }
