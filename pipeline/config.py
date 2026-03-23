@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 
 # Load .env from pipeline directory
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"), override=True)
 
 # Supabase config — uses service role key for full access (bypasses RLS)
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")

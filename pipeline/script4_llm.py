@@ -1,11 +1,11 @@
 """
 Script 4 — LLM Processor (Claude Sonnet)
-Sends scraped website content to Claude for classification and summary.
+Sends scraped website content to Claude for the sourcing survey.
+Stores full survey response and extracts structured fields.
 """
 
 import json
 import logging
-import os
 import time
 from pathlib import Path
 
@@ -30,17 +30,27 @@ def load_sourcing_prompt() -> str:
 
 
 def classify_company(client: Anthropic, prompt_template: str,
-                     company_name: str, website_text: str) -> dict | None:
+                     company_name: str, website_text: str,
+                     ad_competitors: list[dict] = None) -> dict | None:
     """
-    Send company website content to Claude for classification.
-    Returns parsed response or None on failure.
+    Send company website content to Claude for survey evaluation.
+    Returns parsed survey JSON or None on failure.
     """
     full_prompt = prompt_template + "\n" + website_text
+
+    # Append Google Ads competitor data if available
+    if ad_competitors:
+        competitor_text = "\n\nGOOGLE ADWORDS COMPETITORS (companies purchasing ads against this company's name):\n"
+        for comp in ad_competitors:
+            competitor_text += f"- {comp['name']} ({comp['url']})\n"
+        full_prompt += competitor_text
+    else:
+        full_prompt += "\n\nGOOGLE ADWORDS COMPETITORS: None found."
 
     try:
         response = client.messages.create(
             model=LLM_MODEL,
-            max_tokens=500,
+            max_tokens=2000,  # Survey response is larger than old pass/fail
             messages=[
                 {"role": "user", "content": full_prompt}
             ]
@@ -49,7 +59,6 @@ def classify_company(client: Anthropic, prompt_template: str,
         # Extract text from response
         text = response.content[0].text.strip()
 
-        # Try to parse JSON from response
         # Handle cases where Claude wraps JSON in markdown code blocks
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
@@ -61,11 +70,126 @@ def classify_company(client: Anthropic, prompt_template: str,
 
     except json.JSONDecodeError as e:
         log.warning(f"Failed to parse LLM response for {company_name}: {e}")
-        log.debug(f"Raw response: {text}")
         return None
     except Exception as e:
         log.error(f"LLM API error for {company_name}: {e}")
         return None
+
+
+def determine_pass_fail(survey: dict) -> tuple[bool, str]:
+    """
+    Determine if a company passes the LLM filter based on survey results.
+    Returns (passed, reason).
+
+    Pass criteria:
+    - Must sell Software
+    - Must serve Business customers (B2B)
+    - Must not be a subsidiary
+    - Must not be in a disfavored vertical
+    - Must not be primarily Consumer, Marketplace, or Services-only
+    """
+    reasons = []
+
+    # Check offering type
+    offering = survey.get("offering_type", [])
+    if not isinstance(offering, list):
+        offering = [offering]
+    if "Software" not in offering:
+        reasons.append(f"Not software (offering: {', '.join(offering)})")
+
+    # Check customer type
+    customers = survey.get("customer_type", [])
+    if not isinstance(customers, list):
+        customers = [customers]
+    if "Business" not in customers:
+        reasons.append(f"Not B2B (customers: {', '.join(customers)})")
+
+    # Check subsidiary
+    if survey.get("is_subsidiary", False):
+        reasons.append("Is a subsidiary")
+
+    # Check disfavored vertical
+    disfavored = survey.get("disfavored_vertical", "")
+    if disfavored and disfavored.strip():
+        reasons.append(f"Disfavored vertical: {disfavored}")
+
+    # Check if primarily a marketplace or services-only
+    if offering == ["Marketplace"]:
+        reasons.append("Pure marketplace")
+    if offering == ["Services"]:
+        reasons.append("Services-only business")
+
+    passed = len(reasons) == 0
+    reason = "Meets all sourcing criteria" if passed else "; ".join(reasons)
+    return passed, reason
+
+
+def build_what_they_do(survey: dict) -> str:
+    """
+    Build a human-readable summary from survey evidence fields.
+    Falls back to offering_type_evidence if nothing better is available.
+    """
+    parts = []
+
+    # Use offering evidence as the primary description
+    offering_ev = survey.get("offering_type_evidence", "")
+    if offering_ev:
+        parts.append(offering_ev)
+
+    # Add product category context
+    product_ev = survey.get("product_category_evidence", "")
+    if product_ev and product_ev not in offering_ev:
+        parts.append(product_ev)
+
+    if parts:
+        return " ".join(parts)[:500]
+
+    # Fallback: compose from structured fields
+    offering = survey.get("offering_type", [])
+    market = survey.get("market_focus", "")
+    naics = survey.get("NAICS_3digit_name", "")
+    return f"{', '.join(offering) if isinstance(offering, list) else offering} company. {market} focus. {naics}."[:500]
+
+
+def extract_survey_fields(survey: dict) -> dict:
+    """
+    Extract structured fields from the survey JSON for database storage.
+    Maps survey keys to database column names.
+    """
+    def to_bool(val) -> bool | None:
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, str):
+            return val.strip().lower() in ("yes", "true", "1")
+        return None
+
+    def to_list(val) -> list | None:
+        if isinstance(val, list):
+            return val
+        if isinstance(val, str) and val.strip():
+            return [val.strip()]
+        return None
+
+    return {
+        "offering_type": to_list(survey.get("offering_type")),
+        "customer_type": to_list(survey.get("customer_type")),
+        "market_focus": survey.get("market_focus", ""),
+        "naics_3digit_code": survey.get("NAICS_3digit_code", ""),
+        "naics_3digit_name": survey.get("NAICS_3digit_name", ""),
+        "product_category": survey.get("product_category", ""),
+        "revenue_model": to_list(survey.get("revenue_model")),
+        "is_subsidiary": survey.get("is_subsidiary", False),
+        "vertical_type": survey.get("vertical_type", ""),
+        "multi_vertical_type": survey.get("multi_vertical_type", ""),
+        "disfavored_vertical": survey.get("disfavored_vertical", ""),
+        "customers_listed": to_bool(survey.get("customers_listed")),
+        "customers_named": to_list(survey.get("customers_named")),
+        "success_indicators_present": to_bool(survey.get("success_indicators_present")),
+        "success_indicators": to_list(survey.get("success_indicators")),
+        "agentic_features_present": to_bool(survey.get("agentic_features_present")),
+        "agentic_feature_types": to_list(survey.get("agentic_feature_types")),
+        "google_ad_competitors": to_list(survey.get("google_ad_competitors")),
+    }
 
 
 def run(scraped_results: list[dict] = None) -> dict:
@@ -102,17 +226,28 @@ def run(scraped_results: list[dict] = None) -> dict:
 
         log.info(f"Processing: {company_name}")
 
-        result = classify_company(client, prompt_template, company_name, website_text)
+        ad_competitors = item.get("ad_competitors", [])
+        survey = classify_company(client, prompt_template, company_name, website_text, ad_competitors)
 
-        if result:
-            what_they_do = result.get("what_they_do", "")
-            passed = result.get("pass", False)
-            reason = result.get("reason", "")
+        if survey:
+            # Determine pass/fail from survey data
+            passed, reason = determine_pass_fail(survey)
 
-            update_snapshot(snapshot_id, {
+            # Build human-readable summary
+            what_they_do = build_what_they_do(survey)
+
+            # Extract structured fields
+            fields = extract_survey_fields(survey)
+
+            # Build update payload
+            update_data = {
                 "what_they_do": what_they_do,
                 "passed_llm_filter": passed,
-            })
+                "llm_survey": survey,  # Store full survey JSON
+                **fields,
+            }
+
+            update_snapshot(snapshot_id, update_data)
 
             stats["processed"] += 1
             if passed:
@@ -121,6 +256,13 @@ def run(scraped_results: list[dict] = None) -> dict:
             else:
                 stats["failed"] += 1
                 log.info(f"  FAIL: {company_name} — {reason}")
+
+            # Log key survey findings
+            log.info(f"    Offering: {fields.get('offering_type')}")
+            log.info(f"    Customers: {fields.get('customer_type')}")
+            log.info(f"    Market: {fields.get('market_focus')} / {fields.get('vertical_type')}")
+            log.info(f"    NAICS: {fields.get('naics_3digit_code')} {fields.get('naics_3digit_name')}")
+            log.info(f"    Agentic: {fields.get('agentic_features_present')}")
         else:
             stats["errors"] += 1
             log.warning(f"  ERROR: Could not process {company_name}")

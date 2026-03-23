@@ -1,23 +1,220 @@
-You are an analyst at Grayline Partners, a growth equity firm. Your job is to evaluate whether a company is a good fit for our investment thesis.
-
-Review the following company website content and provide:
-
-1. A 2-3 sentence summary of what the company does (be specific about their product, target market, and value proposition).
-
-2. A PASS or FAIL decision based on whether this company fits our sourcing criteria.
-
-SOURCING CRITERIA (company must meet ALL to pass):
-- B2B software or technology-enabled services company
-- Clear product-market fit indicators (real customers, revenue, or traction)
-- Serving a definable market with growth potential
-- Not a consulting firm, agency, or services-only business
-- Not a marketplace or consumer-facing product
-
-IMPORTANT: Respond in exactly this JSON format:
-{
-  "what_they_do": "2-3 sentence summary here",
-  "pass": true or false,
-  "reason": "Brief reason for pass/fail decision"
-}
+You are evaluating companies based on the <survey> questions below.
+Analyze the provided website content and follow all instructions in the <survey> exactly.
+IMPORTANT RULES
+* Restrict answers to the exact options provided in the survey.
+* Do not invent information.
+* Only use information explicitly stated on the website.
+* Provide evidence when requested.
+* If information cannot be determined, return the most conservative answer rather than guessing.
+* Return results strictly using the JSON schema defined at the end.
+WEBSITE SCANNING STRATEGY
+When evaluating a company website, prioritize reviewing the following pages or sections if available:
+1. Homepage
+2. Customers page
+3. Case studies page
+4. Testimonials
+5. About page
+6. Industry or Solutions pages
+7. Press or News sections
+8. Footer statistics or marketing metrics
+Customer references and success indicators are most commonly found on these pages.
+CUSTOMER DETECTION GUIDELINES
+Customer references may appear in the following forms:
+* logo walls
+* testimonial quotes
+* case studies
+* customer stories
+* "Trusted by" sections
+* "Companies using our platform"
+When logo walls appear, treat the logos as customers unless the section is clearly labeled:
+* partners
+* integrations
+* investors
+* technology partners
+If logos appear under headings such as:
+* Trusted by
+* Our Customers
+* Companies Using
+treat them as customers.
+SUCCESS SIGNAL DETECTION GUIDELINES
+Success indicators may appear in marketing language such as:
+* "Trusted by 5,000 companies"
+* "Serving customers in 80+ countries"
+* "Powering millions of transactions"
+* "Used by leading brands"
+* "Processing $X billion annually"
+* "Serving X million users"
+Treat these statements as success indicators if they imply scale, traction, or growth.
+CUSTOMER EXTRACTION PROCESS
+Before answering survey questions:
+1. Identify sections containing customer references.
+2. Extract organization names appearing in those sections.
+3. Exclude organizations labeled as partners, integrations, investors, press mentions, or technology partners.
+4. Build a temporary list called CUSTOMER_REFERENCE_LIST.
+5. Use this list when determining:
+   * customers_named
+   * market_focus
+   * NAICS classifications
+   * vertical_type
+6. If fewer than 3 references exist, rely more on product descriptions and industry positioning.
+7. Never infer customer names that do not appear on the website.
+8. If logos appear without names, include them only if the company can be clearly identified.
+9. Deduplicate customer names.
+10. Use CUSTOMER_REFERENCE_LIST consistently across the survey.
+ANALYST MODE DECISION PROCESS
+Use this process before completing the survey:
+1. Identify whether the website lists customers, industries, or use cases.
+2. Separate evidence into three buckets:
+   * named customers
+   * industry targeting language
+   * traction or growth signals
+3. Treat named customers as highest-confidence evidence.
+4. If customers are unavailable, rely on industry positioning language.
+5. When mapping NAICS codes, classify the customer's industry, not the target company's.
+6. Prefer the primary industry of the customer organization.
+7. If customers span multiple industries, this suggests Horizontal unless a shared workflow is clear.
+8. Use industry_vertical only when one NAICS-3 industry clearly dominates.
+9. Use multi_vertical when industries differ but share a specialized workflow.
+10. Use horizontal for general-purpose products across industries.
+11. Do not infer specialized workflows without clear evidence.
+12. Do not treat integrations, partners, or investors as customers.
+13. Logo walls labeled "Trusted by" count as customer evidence.
+14. If customer evidence conflicts with marketing language, prioritize customer evidence.
+15. If fewer than 3 references exist, rely more on repeated industry positioning.
+16. Only include explicit success metrics.
+17. Metrics like customer count, transaction volume, users, or countries served indicate traction.
+18. Ignore vague marketing claims unless paired with metrics.
+19. When evaluating agentic_features_present, prioritize descriptions of software that executes tasks, triggers actions, or performs workflow steps automatically rather than only providing insights or recommendations.
+20. When uncertain, return the narrower or blank answer rather than guessing.
+NAICS INFERENCE IMPROVEMENT
+When named customers are unavailable:
+1. Scan "Industries", "Solutions", or "Use Cases" pages.
+2. Look for repeated phrases such as:
+   * "built for healthcare"
+   * "for construction teams"
+   * "for restaurants"
+   * "for property managers"
+3. Map these industries to their corresponding 2-digit NAICS sectors.
+4. If multiple unrelated industries are listed, treat this as evidence of Horizontal.
+5. If one industry appears consistently across pages, treat this as evidence of Vertical.
+6. Avoid assigning NAICS codes unless the industry targeting is clear.
+7. Prefer explicit industry nouns over vague categories like "businesses".
+8. If industry targeting is ambiguous, return Other for market_focus.
+<survey>
+What type of offering does the Target Company sell? Select at least one option.
+offering_type:
+* Software
+* Hardware
+* Services
+* Marketplace
+* Data
+* Other
+offering_type_evidence:
+What types of customers pay for the Target Company's product? Select at least one option.
+customer_type:
+* Business
+* Non-profit
+* Government
+* Consumer
+* Other
+customer_type_evidence:
+market_focus:
+Vertical Horizontal Other
+market_focus_evidence:
+NAICS_3digit_code: NAICS_3digit_name:
+What type of product does the Target Company sell?
+product_category:
+* Infrastructure
+* Application
+* N/A
+product_category_evidence:
+revenue_model:
+* Subscription
+* Usage-based
+* Project-based
+* Other
+revenue_model_evidence:
+is_subsidiary
+vertical_type:
+* industry_vertical
+* multi_vertical
+* horizontal
+multi_vertical_type:
+disfavored_vertical:
+* ecommerce_brands
+* social_media_creators
+* social_media_influencers
+* solo_entrepreneurs
+* clinical_trial_operators
+* cannabis
+* drug_R&D
+* game_development
+CUSTOMER REFERENCES
+customers_listed:
+customers_listed_evidence:
+customers_named:
+COMPANY SUCCESS OR GROWTH SIGNALS
+success_indicators_present:
+success_indicators:
+success_indicators_evidence:
+AGENTIC PRODUCT CAPABILITIES
+agentic_features_present:
+Does the Target Company's product include agentic capabilities?
+Agentic capabilities are features where the software performs actions traditionally executed by a human as part of their workflow.
+Examples include:
+* automated responses to customers
+* workflow automation executing tasks
+* automatically updating records or systems
+* automated scheduling or coordination
+* triggering downstream processes
+* operational task execution across tools
+* RPA-style automation
+* AI agents completing work tasks
+Non-agentic examples include:
+* dashboards
+* analytics
+* reporting
+* search tools
+* recommendation systems that do not execute actions
+* AI assistants that only provide suggestions
+Only answer Yes if the product clearly executes actions or workflow steps on behalf of users.
+If the product only provides analysis, insights, recommendations, or decision support without execution, answer No.
+If the website does not clearly indicate autonomous execution, answer No rather than guessing.
+Answer Yes or No.
+agentic_feature_types:
+If agentic_features_present is Yes, return a list describing the automated actions performed.
+Examples:
+* workflow automation
+* automated customer communication
+* automated scheduling
+* automated system updates
+* automated task execution
+* RPA automation
+If agentic_features_present is No, return an empty list.
+agentic_features_evidence:
+Provide the website language or close paraphrase supporting the presence or absence of agentic features.
+COMPETITIVE LANDSCAPE
+A list of companies purchasing Google AdWords against this company's name is provided below the website content (if any were found). These are companies actively bidding on this company's brand keywords, which strongly suggests they are direct competitors or alternatives.
+google_ad_competitors:
+Return the list of competitor names found purchasing AdWords against this company.
+If no AdWords competitors were provided, return an empty list.
+Do not invent competitors. Only return names from the provided AdWords data.
+google_ad_competitors_evidence:
+Briefly describe why these companies appear to be competitors based on their ad text and the target company's product.
+</survey>
+Return results using this JSON schema:
+{ "offering_type": List[str], "offering_type_evidence": str, "customer_type": List[str], "customer_type_evidence": str, "market_focus": str, "market_focus_evidence": str, "NAICS_3digit_code": str, "NAICS_3digit_name": str, "product_category": str, "product_category_evidence": str, "revenue_model": List[str], "revenue_model_evidence": str, "is_subsidiary": bool, "vertical_type": str, "multi_vertical_type": str, "disfavored_vertical": str, "customers_listed": str, "customers_listed_evidence": str, "customers_named": List[str], "success_indicators_present": str, "success_indicators": List[str], "success_indicators_evidence": str, "agentic_features_present": str, "agentic_feature_types": List[str], "agentic_features_evidence": str, "google_ad_competitors": List[str], "google_ad_competitors_evidence": str }
+VALIDATION RULES
+Before returning the final JSON:
+* customers_named must contain only companies explicitly mentioned on the website.
+* success_indicators must include only explicitly stated metrics.
+* NAICS codes should correspond to the industries of named customers when possible.
+* market_focus must align with customer evidence or industry targeting.
+* vertical_type must align with market_focus and NAICS evidence.
+* multi_vertical_type must be blank unless vertical_type is multi_vertical.
+* disfavored_vertical must only be set if clearly supported by the website.
+* google_ad_competitors must only contain names from the provided AdWords data. Never invent competitors.
+* Ensure all list fields are arrays of strings.
+* Ensure the output strictly matches the JSON schema.
 
 COMPANY WEBSITE CONTENT:

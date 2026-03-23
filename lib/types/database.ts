@@ -35,6 +35,25 @@ export interface CompanySnapshot {
   what_they_do: string | null;
   passed_headcount_filter: boolean;
   passed_llm_filter: boolean;
+  // LLM survey fields
+  llm_survey: Record<string, unknown> | null;
+  offering_type: string[] | null;
+  customer_type: string[] | null;
+  market_focus: string | null;
+  naics_3digit_code: string | null;
+  naics_3digit_name: string | null;
+  product_category: string | null;
+  revenue_model: string[] | null;
+  is_subsidiary: boolean;
+  vertical_type: string | null;
+  multi_vertical_type: string | null;
+  disfavored_vertical: string | null;
+  customers_listed: boolean | null;
+  customers_named: string[] | null;
+  success_indicators_present: boolean | null;
+  success_indicators: string[] | null;
+  agentic_features_present: boolean | null;
+  agentic_feature_types: string[] | null;
 }
 
 export interface ReviewHistory {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 
 type Classification = "HVT" | "PM" | "PS" | "PT" | "PL";
 
@@ -17,10 +17,23 @@ interface ReviewCompany {
     founded_year: number | null;
     location: string | null;
     headcount: number | null;
+    headcount_error: boolean | null;
     headcount_growth_1yr: number | null;
     total_capital_raised: number | null;
     last_round_valuation: number | null;
     what_they_do: string | null;
+    offering_type: string[] | null;
+    customer_type: string[] | null;
+    market_focus: string | null;
+    naics_3digit_name: string | null;
+    product_category: string | null;
+    revenue_model: string[] | null;
+    vertical_type: string | null;
+    disfavored_vertical: string | null;
+    customers_named: string[] | null;
+    success_indicators_present: boolean | null;
+    agentic_features_present: boolean | null;
+    agentic_feature_types: string[] | null;
   } | null;
 }
 
@@ -37,9 +50,8 @@ const classificationOptions: {
 ];
 
 function formatMoney(amount: number | null | undefined): string {
-  if (amount === null || amount === undefined) return "—";
-  if (amount >= 1_000_000_000)
-    return `$${(amount / 1_000_000_000).toFixed(1)}B`;
+  if (amount === null || amount === undefined) return "\u2014";
+  if (amount >= 1_000_000_000) return `$${(amount / 1_000_000_000).toFixed(1)}B`;
   if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
   if (amount >= 1_000) return `$${(amount / 1_000).toFixed(0)}K`;
   return `$${amount}`;
@@ -50,6 +62,7 @@ export default function ReviewPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [selected, setSelected] = useState<Record<string, Classification>>({});
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
@@ -65,13 +78,10 @@ export default function ReviewPage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchCompanies();
-  }, [fetchCompanies]);
+  useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
 
   const handleSelect = (companyId: string, classification: Classification) => {
     setSelected((prev) => {
-      // Toggle off if already selected
       if (prev[companyId] === classification) {
         const next = { ...prev };
         delete next[companyId];
@@ -84,7 +94,6 @@ export default function ReviewPage() {
   const handleSubmit = async () => {
     const entries = Object.entries(selected);
     if (entries.length === 0) return;
-
     setSubmitting(true);
     try {
       const results = await Promise.all(
@@ -96,11 +105,8 @@ export default function ReviewPage() {
           })
         )
       );
-
       const allOk = results.every((r) => r.ok);
       if (!allOk) throw new Error("Some classifications failed");
-
-      // Remove classified companies from the list
       const classifiedIds = new Set(entries.map(([id]) => id));
       setCompanies((prev) => prev.filter((c) => !classifiedIds.has(c.id)));
       setSelected({});
@@ -114,13 +120,12 @@ export default function ReviewPage() {
   const selectedCount = Object.keys(selected).length;
 
   const formatGrowth = (growth: number | null) => {
-    if (growth === null || growth === undefined) return "—";
+    if (growth === null || growth === undefined) return "\u2014";
     const pct = (growth * 100).toFixed(0);
     const isPositive = growth > 0;
     return (
       <span className={isPositive ? "text-emerald-400" : "text-red-400"}>
-        {isPositive ? "+" : ""}
-        {pct}%
+        {isPositive ? "+" : ""}{pct}%
       </span>
     );
   };
@@ -130,57 +135,30 @@ export default function ReviewPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Do for Review</h1>
-          <p className="text-gray-400 text-sm mt-1">
-            Classify companies that have passed all pipeline filters.
-          </p>
+          <p className="text-gray-400 text-sm mt-1">Classify companies that have passed all pipeline filters.</p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-500">
-            {companies.length}{" "}
-            {companies.length === 1 ? "company" : "companies"} in queue
+            {companies.length} {companies.length === 1 ? "company" : "companies"} in queue
           </span>
-          <button
-            onClick={fetchCompanies}
-            className="px-3 py-1.5 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors"
-          >
+          <button onClick={fetchCompanies} className="px-3 py-1.5 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors">
             Refresh
           </button>
           {selectedCount > 0 && (
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="px-4 py-1.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 disabled:text-emerald-300 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
-            >
-              {submitting
-                ? "Submitting..."
-                : `Submit ${selectedCount} ${selectedCount === 1 ? "Classification" : "Classifications"}`}
+            <button onClick={handleSubmit} disabled={submitting} className="px-4 py-1.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 disabled:text-emerald-300 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed">
+              {submitting ? "Submitting..." : `Submit ${selectedCount} ${selectedCount === 1 ? "Classification" : "Classifications"}`}
             </button>
           )}
         </div>
       </div>
 
-      {/* Classification Legend */}
       <div className="flex items-center gap-4 mb-4 text-xs text-gray-500">
         <span className="font-medium text-gray-400">Classifications:</span>
-        <span>
-          <span className="text-emerald-400 font-medium">HVT</span> High Value
-          Target
-        </span>
-        <span>
-          <span className="text-red-400 font-medium">PM</span> Pass — Market
-        </span>
-        <span>
-          <span className="text-orange-400 font-medium">PL</span> Pass —
-          Location
-        </span>
-        <span>
-          <span className="text-yellow-400 font-medium">PS</span> Pass — Stage
-          <span className="text-gray-600 ml-1">(3mo requeue)</span>
-        </span>
-        <span>
-          <span className="text-blue-400 font-medium">PT</span> Pass — Traction
-          <span className="text-gray-600 ml-1">(3mo requeue)</span>
-        </span>
+        <span><span className="text-emerald-400 font-medium">HVT</span> High Value Target</span>
+        <span><span className="text-red-400 font-medium">PM</span> Pass — Market</span>
+        <span><span className="text-orange-400 font-medium">PL</span> Pass — Location</span>
+        <span><span className="text-yellow-400 font-medium">PS</span> Pass — Stage <span className="text-gray-600 ml-1">(3mo requeue)</span></span>
+        <span><span className="text-blue-400 font-medium">PT</span> Pass — Traction <span className="text-gray-600 ml-1">(3mo requeue)</span></span>
       </div>
 
       {loading ? (
@@ -189,7 +167,6 @@ export default function ReviewPage() {
         </div>
       ) : companies.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-gray-500">
-          <span className="text-4xl mb-3">✓</span>
           <p className="text-lg font-medium">Review queue is empty</p>
           <p className="text-sm mt-1">All companies have been classified.</p>
         </div>
@@ -198,167 +175,108 @@ export default function ReviewPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-800 bg-gray-900/50">
-                <th className="text-left py-3 px-4 font-medium text-gray-400">
-                  #
-                </th>
-                <th className="text-left py-3 px-4 font-medium text-gray-400">
-                  Company
-                </th>
-                <th className="text-left py-3 px-4 font-medium text-gray-400">
-                  Founded
-                </th>
-                <th className="text-left py-3 px-4 font-medium text-gray-400">
-                  Location
-                </th>
-                <th className="text-right py-3 px-4 font-medium text-gray-400">
-                  HC
-                </th>
-                <th className="text-right py-3 px-4 font-medium text-gray-400">
-                  1yr Growth
-                </th>
-                <th className="text-right py-3 px-4 font-medium text-gray-400">
-                  Raised
-                </th>
-                <th className="text-right py-3 px-4 font-medium text-gray-400">
-                  Last Val.
-                </th>
-                <th className="text-left py-3 px-4 font-medium text-gray-400 max-w-xs">
-                  What They Do
-                </th>
-                <th className="text-center py-3 px-4 font-medium text-gray-400">
-                  Classification
-                </th>
+                <th className="text-left py-3 px-4 font-medium text-gray-400">#</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-400">Company</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-400">Founded</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-400">Location</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-400">HC</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-400">1yr Growth</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-400">Raised</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-400">Last Val.</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-400 max-w-xs">What They Do</th>
+                <th className="text-center py-3 px-4 font-medium text-gray-400">Market</th>
+                <th className="text-center py-3 px-4 font-medium text-gray-400">Agentic</th>
+                <th className="text-center py-3 px-4 font-medium text-gray-400">Classification</th>
               </tr>
             </thead>
             <tbody>
               {companies.map((company, index) => {
                 const s = company.snapshot;
                 const currentSelection = selected[company.id];
-
                 return (
-                  <tr
-                    key={company.id}
-                    className={`border-b border-gray-800/50 transition-all duration-200 ${
-                      currentSelection
-                        ? "bg-gray-900/40"
-                        : "hover:bg-gray-900/30"
-                    }`}
-                  >
-                    {/* Row number */}
-                    <td className="py-3 px-4 text-gray-600 tabular-nums">
-                      {index + 1}
-                    </td>
-
-                    {/* Company name + PB/LI links + review count */}
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        {s?.website ? (
-                          <a
-                            href={s.website}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-white font-medium hover:text-blue-400 transition-colors"
-                          >
-                            {s?.name || "Unknown"}
-                          </a>
+                  <React.Fragment key={company.id}>
+                    <tr className={`border-b border-gray-800/50 transition-all duration-200 ${currentSelection ? "bg-gray-900/40" : "hover:bg-gray-900/30"}`}>
+                      <td className="py-3 px-4 text-gray-600 tabular-nums">{index + 1}</td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          {s?.website ? (
+                            <a href={s.website} target="_blank" rel="noopener noreferrer" className="text-white font-medium hover:text-blue-400 transition-colors">{s?.name || "Unknown"}</a>
+                          ) : (
+                            <span className="text-white font-medium">{s?.name || "Unknown"}</span>
+                          )}
+                          {s?.pitchbook_url && (
+                            <a href={s.pitchbook_url} target="_blank" rel="noopener noreferrer" className="px-1 py-0.5 text-[10px] font-bold rounded bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white transition-colors" title="View on PitchBook">PB</a>
+                          )}
+                          {s?.linkedin_url && (
+                            <a href={s.linkedin_url} target="_blank" rel="noopener noreferrer" className="px-1 py-0.5 text-[10px] font-bold rounded bg-gray-700 text-blue-400 hover:bg-gray-600 hover:text-blue-300 transition-colors" title="View on LinkedIn">LI</a>
+                          )}
+                          {company.review_count > 0 && (
+                            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-gray-700 text-gray-300 text-xs font-medium" title={`Reviewed ${company.review_count} time${company.review_count === 1 ? "" : "s"} before`}>{company.review_count}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-gray-400">{s?.founded_year || "\u2014"}</td>
+                      <td className="py-3 px-4 text-gray-400">{s?.location || "\u2014"}</td>
+                      <td className="py-3 px-4 text-right tabular-nums">
+                        {s?.headcount_error ? (
+                          <span className="text-amber-400 font-medium" title="LinkedIn scrape failed — headcount not available">N/A</span>
+                        ) : s?.headcount ? (
+                          <span className="text-gray-300">{s.headcount}</span>
                         ) : (
-                          <span className="text-white font-medium">
-                            {s?.name || "Unknown"}
+                          <span className="text-gray-600">{"\u2014"}</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-right tabular-nums">{formatGrowth(s?.headcount_growth_1yr ?? null)}</td>
+                      <td className="py-3 px-4 text-right text-gray-300 tabular-nums">{formatMoney(s?.total_capital_raised)}</td>
+                      <td className="py-3 px-4 text-right text-gray-300 tabular-nums">{formatMoney(s?.last_round_valuation)}</td>
+                      <td className="py-3 px-4 text-gray-400 max-w-xs cursor-pointer" onClick={() => setExpandedRow(expandedRow === company.id ? null : company.id)} title="Click to expand survey details">
+                        <p className="line-clamp-2 text-xs leading-relaxed">{s?.what_they_do || "\u2014"}</p>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        {s?.market_focus ? (
+                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${s.market_focus === "Vertical" ? "bg-purple-900/50 text-purple-300" : s.market_focus === "Horizontal" ? "bg-cyan-900/50 text-cyan-300" : "bg-gray-800 text-gray-400"}`} title={s.vertical_type ? `${s.vertical_type}${s.naics_3digit_name ? ` — ${s.naics_3digit_name}` : ""}` : undefined}>
+                            {s.market_focus === "Vertical" ? "V" : s.market_focus === "Horizontal" ? "H" : "?"}
                           </span>
-                        )}
-                        {s?.pitchbook_url && (
-                          <a
-                            href={s.pitchbook_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-1 py-0.5 text-[10px] font-bold rounded bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white transition-colors"
-                            title="View on PitchBook"
-                          >
-                            PB
-                          </a>
-                        )}
-                        {s?.linkedin_url && (
-                          <a
-                            href={s.linkedin_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-1 py-0.5 text-[10px] font-bold rounded bg-gray-700 text-blue-400 hover:bg-gray-600 hover:text-blue-300 transition-colors"
-                            title="View on LinkedIn"
-                          >
-                            LI
-                          </a>
-                        )}
-                        {company.review_count > 0 && (
-                          <span
-                            className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-gray-700 text-gray-300 text-xs font-medium"
-                            title={`Reviewed ${company.review_count} time${company.review_count === 1 ? "" : "s"} before`}
-                          >
-                            {company.review_count}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Founded */}
-                    <td className="py-3 px-4 text-gray-400">
-                      {s?.founded_year || "—"}
-                    </td>
-
-                    {/* Location */}
-                    <td className="py-3 px-4 text-gray-400">
-                      {s?.location || "—"}
-                    </td>
-
-                    {/* Headcount */}
-                    <td className="py-3 px-4 text-right text-gray-300 tabular-nums">
-                      {s?.headcount || "—"}
-                    </td>
-
-                    {/* Growth */}
-                    <td className="py-3 px-4 text-right tabular-nums">
-                      {formatGrowth(s?.headcount_growth_1yr ?? null)}
-                    </td>
-
-                    {/* Raised to Date */}
-                    <td className="py-3 px-4 text-right text-gray-300 tabular-nums">
-                      {formatMoney(s?.total_capital_raised)}
-                    </td>
-
-                    {/* Last Round Valuation */}
-                    <td className="py-3 px-4 text-right text-gray-300 tabular-nums">
-                      {formatMoney(s?.last_round_valuation)}
-                    </td>
-
-                    {/* What they do */}
-                    <td className="py-3 px-4 text-gray-400 max-w-xs">
-                      <p className="line-clamp-2 text-xs leading-relaxed">
-                        {s?.what_they_do || "—"}
-                      </p>
-                    </td>
-
-                    {/* Classification radio buttons */}
-                    <td className="py-3 px-4">
-                      <div className="flex items-center justify-center gap-1">
-                        {classificationOptions.map((opt) => (
-                          <button
-                            key={opt.value}
-                            onClick={() =>
-                              handleSelect(company.id, opt.value)
-                            }
-                            disabled={submitting}
-                            className={`px-2 py-1 rounded text-xs font-medium transition-all cursor-pointer ${
-                              currentSelection === opt.value
-                                ? `${opt.color} bg-gray-700 ring-1 ring-current`
-                                : "text-gray-500 hover:text-gray-300 hover:bg-gray-800"
-                            } ${submitting ? "cursor-not-allowed opacity-50" : ""}`}
-                            title={opt.label}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
+                        ) : <span className="text-gray-600">{"\u2014"}</span>}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        {s?.agentic_features_present === true ? (
+                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400" title={s.agentic_feature_types?.join(", ") || "Agentic features present"} />
+                        ) : <span className="text-gray-600 text-xs">{"\u2014"}</span>}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center justify-center gap-1">
+                          {classificationOptions.map((opt) => (
+                            <button key={opt.value} onClick={() => handleSelect(company.id, opt.value)} disabled={submitting} className={`px-2 py-1 rounded text-xs font-medium transition-all cursor-pointer ${currentSelection === opt.value ? `${opt.color} bg-gray-700 ring-1 ring-current` : "text-gray-500 hover:text-gray-300 hover:bg-gray-800"} ${submitting ? "cursor-not-allowed opacity-50" : ""}`} title={opt.label}>
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedRow === company.id && s && (
+                      <tr className="bg-gray-900/60">
+                        <td colSpan={12} className="py-4 px-8">
+                          <div className="grid grid-cols-4 gap-4 text-xs">
+                            <div><span className="text-gray-500 block mb-1">Offering</span><span className="text-gray-300">{s.offering_type?.join(", ") || "\u2014"}</span></div>
+                            <div><span className="text-gray-500 block mb-1">Customer Type</span><span className="text-gray-300">{s.customer_type?.join(", ") || "\u2014"}</span></div>
+                            <div><span className="text-gray-500 block mb-1">Product Category</span><span className="text-gray-300">{s.product_category || "\u2014"}</span></div>
+                            <div><span className="text-gray-500 block mb-1">Revenue Model</span><span className="text-gray-300">{s.revenue_model?.join(", ") || "\u2014"}</span></div>
+                            <div><span className="text-gray-500 block mb-1">Market / Vertical</span><span className="text-gray-300">{s.market_focus || "\u2014"}{s.vertical_type ? ` (${s.vertical_type})` : ""}</span></div>
+                            <div><span className="text-gray-500 block mb-1">NAICS</span><span className="text-gray-300">{s.naics_3digit_name || "\u2014"}</span></div>
+                            <div><span className="text-gray-500 block mb-1">Success Signals</span><span className="text-gray-300">{s.success_indicators_present ? "Yes" : "No"}</span></div>
+                            <div><span className="text-gray-500 block mb-1">Agentic</span><span className="text-gray-300">{s.agentic_features_present ? (s.agentic_feature_types?.join(", ") || "Yes") : "No"}</span></div>
+                            {s.customers_named && s.customers_named.length > 0 && (
+                              <div className="col-span-4"><span className="text-gray-500 block mb-1">Named Customers</span><span className="text-gray-300">{s.customers_named.join(", ")}</span></div>
+                            )}
+                            {s.disfavored_vertical && (
+                              <div className="col-span-4"><span className="text-red-400 text-xs font-medium">Disfavored vertical: {s.disfavored_vertical}</span></div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>

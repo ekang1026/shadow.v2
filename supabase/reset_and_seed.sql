@@ -64,7 +64,26 @@ CREATE TABLE company_snapshots (
   previous_investors text[],
   what_they_do text,
   passed_headcount_filter boolean DEFAULT false,
-  passed_llm_filter boolean DEFAULT false
+  passed_llm_filter boolean DEFAULT false,
+  -- LLM survey fields
+  llm_survey jsonb,
+  offering_type text[],
+  customer_type text[],
+  market_focus text,
+  naics_3digit_code text,
+  naics_3digit_name text,
+  product_category text,
+  revenue_model text[],
+  is_subsidiary boolean DEFAULT false,
+  vertical_type text,
+  multi_vertical_type text,
+  disfavored_vertical text,
+  customers_listed boolean,
+  customers_named text[],
+  success_indicators_present boolean,
+  success_indicators text[],
+  agentic_features_present boolean,
+  agentic_feature_types text[]
 );
 
 CREATE INDEX idx_snapshots_company_latest ON company_snapshots(company_id, is_latest);
