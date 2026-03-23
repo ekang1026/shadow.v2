@@ -213,7 +213,7 @@ export default function ReviewPage() {
   const [ingesting, setIngesting] = useState(false);
   const [ingestStatus, setIngestStatus] = useState<string | null>(null);
   const [ingestLogs, setIngestLogs] = useState<string[]>([]);
-  const [ingestSummary, setIngestSummary] = useState<{ new: number; updated: number; skipped: number; errors: number; duration_seconds: number; file_name: string } | null>(null);
+  const [ingestSummary, setIngestSummary] = useState<{ new: number; updated: number; skipped: number; errors: number; hc_passed?: number; llm_passed?: number; llm_failed?: number; duration_seconds: number; file_name: string } | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const logPanelRef = React.useRef<HTMLDivElement>(null);
 
@@ -230,7 +230,7 @@ export default function ReviewPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setIngesting(true);
-    setIngestStatus(`Ingesting ${file.name}...`);
+    setIngestStatus(`Running full pipeline on ${file.name}... (ingest → LinkedIn HC → LLM survey)`);
     setIngestLogs([]);
     setIngestSummary(null);
     try {
@@ -253,7 +253,8 @@ export default function ReviewPage() {
           duration_seconds: data.duration_seconds,
           file_name: data.file_name,
         });
-        setIngestStatus(`Ingestion complete: ${data.stats.new} new, ${data.stats.updated} updated, ${data.stats.skipped} skipped`);
+        const s = data.stats;
+        setIngestStatus(`Pipeline complete: ${s.new} ingested, ${s.hc_passed || 0} passed HC, ${s.llm_passed || 0} passed LLM → ready for review`);
         fetchCompanies();
         fetchIngestMeta();
       } else {
@@ -484,11 +485,17 @@ export default function ReviewPage() {
             </div>
           )}
           {ingestSummary && (
-            <div className="bg-gray-900/50 px-4 py-3 grid grid-cols-4 gap-4 text-center border-t border-gray-800">
-              <div><div className="text-lg font-bold text-emerald-400">{ingestSummary.new}</div><div className="text-xs text-gray-500">New</div></div>
-              <div><div className="text-lg font-bold text-blue-400">{ingestSummary.updated}</div><div className="text-xs text-gray-500">Updated</div></div>
-              <div><div className="text-lg font-bold text-gray-400">{ingestSummary.skipped}</div><div className="text-xs text-gray-500">Skipped</div></div>
-              <div><div className="text-lg font-bold text-red-400">{ingestSummary.errors}</div><div className="text-xs text-gray-500">Errors</div></div>
+            <div className="bg-gray-900/50 px-4 py-3 border-t border-gray-800">
+              <div className="grid grid-cols-7 gap-3 text-center">
+                <div><div className="text-lg font-bold text-white">{ingestSummary.new}</div><div className="text-xs text-gray-500">Ingested</div></div>
+                <div className="flex items-center justify-center text-gray-600">→</div>
+                <div><div className="text-lg font-bold text-blue-400">{ingestSummary.hc_passed ?? "—"}</div><div className="text-xs text-gray-500">Passed HC</div></div>
+                <div className="flex items-center justify-center text-gray-600">→</div>
+                <div><div className="text-lg font-bold text-emerald-400">{ingestSummary.llm_passed ?? "—"}</div><div className="text-xs text-gray-500">Passed LLM</div></div>
+                <div><div className="text-lg font-bold text-red-400">{ingestSummary.llm_failed ?? "—"}</div><div className="text-xs text-gray-500">Failed LLM</div></div>
+                <div><div className="text-lg font-bold text-gray-500">{ingestSummary.errors}</div><div className="text-xs text-gray-500">Errors</div></div>
+              </div>
+              <div className="text-xs text-gray-600 text-center mt-2">Ingested → HC Filter (8-30) → LLM Survey → Ready for Review</div>
             </div>
           )}
         </div>

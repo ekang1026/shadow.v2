@@ -22,7 +22,8 @@ export async function GET() {
   return NextResponse.json(data?.value || { last_run_at: null, stats: null });
 }
 
-// POST: Upload a PitchBook Excel/CSV file and run ingest
+// POST: Upload a PitchBook file and run the full ingest pipeline
+// Pipeline: Ingest → LinkedIn HC scrape → Website scrape → LLM survey
 export async function POST(request: Request) {
   console.log("[Ingest] POST request received");
   try {
@@ -52,52 +53,50 @@ export async function POST(request: Request) {
 
     const pipelinePath = path.resolve(process.cwd(), "pipeline");
     const venvPython = path.join(pipelinePath, ".venv", "bin", "python3");
-    const scriptPath = path.join(pipelinePath, "script1_pitchbook.py");
+    const scriptPath = path.join(pipelinePath, "run_ingest_pipeline.py");
     const startedAt = new Date();
 
-    console.log("[Ingest] Saved to:", tmpPath, "Running script...");
+    console.log("[Ingest] Saved to:", tmpPath, "Running full pipeline...");
 
     const result = await new Promise<{
-      new: number;
-      updated: number;
-      skipped: number;
-      errors: number;
       logs: string[];
+      pipelineResult: Record<string, unknown> | null;
     }>((resolve, reject) => {
       exec(
         `cd "${pipelinePath}" && "${venvPython}" -u "${scriptPath}" "${tmpPath}"`,
         {
-          timeout: 300000,
+          timeout: 600000, // 10 minute timeout for full pipeline
+          maxBuffer: 10 * 1024 * 1024, // 10MB buffer for logs
           env: { ...process.env, PYTHONPATH: pipelinePath, PYTHONUNBUFFERED: "1" },
         },
         (error, stdout, stderr) => {
           try { fs.unlinkSync(tmpPath); } catch {}
 
-          // Parse log lines
           const allOutput = stdout + stderr;
+
+          // Parse log lines — include all pipeline steps
           const logLines = allOutput
             .split("\n")
-            .filter((l: string) => l.includes("[PitchBook]"))
-            .map((l: string) => l.replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2},\d+\s+\[PitchBook\]\s*/, ""))
+            .filter((l: string) => l.match(/\[(Pipeline|PitchBook|LinkedIn|Domain|LLM)\]/))
+            .map((l: string) => l.replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2},\d+\s+/, ""))
             .filter((l: string) => l.trim());
 
-          if (error) {
-            console.error("[Ingest] Script error:", stderr);
-            reject(new Error(logLines.join("\n") || stderr || error.message));
+          // Parse pipeline result JSON from last line
+          let pipelineResult = null;
+          const resultLine = allOutput.split("\n").find((l: string) => l.startsWith("PIPELINE_RESULT:"));
+          if (resultLine) {
+            try {
+              pipelineResult = JSON.parse(resultLine.replace("PIPELINE_RESULT:", ""));
+            } catch {}
+          }
+
+          if (error && !pipelineResult) {
+            console.error("[Ingest] Pipeline error:", stderr?.slice(-500));
+            reject(new Error(logLines.slice(-5).join("\n") || stderr || error.message));
             return;
           }
 
-          const match = allOutput.match(
-            /ingestion complete:\s*(\d+)\s*new,\s*(\d+)\s*updated,\s*(\d+)\s*skipped,\s*(\d+)\s*errors/
-          );
-
-          resolve({
-            new: match ? parseInt(match[1]) : 0,
-            updated: match ? parseInt(match[2]) : 0,
-            skipped: match ? parseInt(match[3]) : 0,
-            errors: match ? parseInt(match[4]) : 0,
-            logs: logLines,
-          });
+          resolve({ logs: logLines, pipelineResult });
         }
       );
     });
@@ -105,36 +104,54 @@ export async function POST(request: Request) {
     const completedAt = new Date();
     const durationSeconds = Math.round((completedAt.getTime() - startedAt.getTime()) / 1000);
 
+    // Extract stats from pipeline result
+    const ingestStats = (result.pipelineResult?.ingest as Record<string, number>) || {};
+    const llmStats = ((result.pipelineResult?.llm as Record<string, unknown>)?.stats as Record<string, number>) || {};
+
+    const stats = {
+      new: ingestStats.new || 0,
+      updated: ingestStats.updated || 0,
+      skipped: ingestStats.skipped || 0,
+      errors: ingestStats.errors || 0,
+      hc_passed: llmStats.processed || 0,
+      llm_passed: llmStats.passed || 0,
+      llm_failed: llmStats.failed || 0,
+    };
+
     // Save to pipeline_runs and pipeline_metadata
-    const supabase = await createClient();
+    try {
+      const supabase = await createClient();
 
-    await supabase.from("pipeline_runs").insert({
-      run_type: "pitchbook_ingest",
-      file_name: fileName,
-      started_at: startedAt.toISOString(),
-      completed_at: completedAt.toISOString(),
-      duration_seconds: durationSeconds,
-      status: "completed",
-      stats: { new: result.new, updated: result.updated, skipped: result.skipped, errors: result.errors },
-    });
+      await supabase.from("pipeline_runs").insert({
+        run_type: "pitchbook_ingest",
+        file_name: fileName,
+        started_at: startedAt.toISOString(),
+        completed_at: completedAt.toISOString(),
+        duration_seconds: durationSeconds,
+        status: "completed",
+        stats,
+      });
 
-    await supabase.from("pipeline_metadata").upsert(
-      {
-        key: "pitchbook_last_ingest",
-        value: {
-          last_run_at: completedAt.toISOString(),
-          stats: { new: result.new, updated: result.updated, skipped: result.skipped, errors: result.errors },
-          file_name: fileName,
-          duration_seconds: durationSeconds,
+      await supabase.from("pipeline_metadata").upsert(
+        {
+          key: "pitchbook_last_ingest",
+          value: {
+            last_run_at: completedAt.toISOString(),
+            stats,
+            file_name: fileName,
+            duration_seconds: durationSeconds,
+          },
+          updated_at: completedAt.toISOString(),
         },
-        updated_at: completedAt.toISOString(),
-      },
-      { onConflict: "key" }
-    );
+        { onConflict: "key" }
+      );
+    } catch (dbErr) {
+      console.error("[Ingest] Failed to save run metadata:", dbErr);
+    }
 
     return NextResponse.json({
       success: true,
-      stats: { new: result.new, updated: result.updated, skipped: result.skipped, errors: result.errors },
+      stats,
       logs: result.logs,
       file_name: fileName,
       duration_seconds: durationSeconds,
