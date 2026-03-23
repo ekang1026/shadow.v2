@@ -70,6 +70,7 @@ function CompanyRow({
   expandedRow,
   onToggleExpand,
   dimmed,
+  overrideSlot,
 }: {
   company: ReviewCompany;
   index: number;
@@ -79,6 +80,7 @@ function CompanyRow({
   expandedRow: string | null;
   onToggleExpand: (id: string) => void;
   dimmed?: boolean;
+  overrideSlot?: React.ReactNode;
 }) {
   const s = company.snapshot;
   const currentSelection = selected[company.id];
@@ -158,6 +160,7 @@ function CompanyRow({
             <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400" title={s.agentic_feature_types?.join(", ") || "Agentic features present"} />
           ) : <span className="text-gray-600 text-xs">{"\u2014"}</span>}
         </td>
+        {overrideSlot}
         <td className="py-3 px-4">
           <div className="flex items-center justify-center gap-1">
             {classificationOptions.map((opt) => (
@@ -204,6 +207,8 @@ export default function ReviewPage() {
   const [selected, setSelected] = useState<Record<string, Classification>>({});
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [showFailed, setShowFailed] = useState(false);
+  const [failedSort, setFailedSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "name", dir: "asc" });
+  const [overrides, setOverrides] = useState<Set<string>>(new Set());
 
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
@@ -221,21 +226,62 @@ export default function ReviewPage() {
 
   useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
 
-  // Split companies: passed on top, failed below
+  // Split companies: passed on top, failed below (overrides move failed → passed)
   const passedCompanies = companies.filter((c) => {
+    if (overrides.has(c.id)) return true;
     const s = c.snapshot;
     if (!s) return false;
-    // Show companies that passed both filters, or haven't been filtered yet (null = pending)
     const hcOk = s.passed_headcount_filter !== false;
     const llmOk = s.passed_llm_filter !== false;
     return hcOk && llmOk;
   });
 
-  const failedCompanies = companies.filter((c) => {
+  const failedCompaniesRaw = companies.filter((c) => {
+    if (overrides.has(c.id)) return false;
     const s = c.snapshot;
     if (!s) return false;
     return s.passed_headcount_filter === false || s.passed_llm_filter === false;
   });
+
+  // Sort failed companies
+  const getSortValue = (c: ReviewCompany, key: string): string | number => {
+    const s = c.snapshot;
+    if (!s) return "";
+    switch (key) {
+      case "name": return s.name || "";
+      case "hq": return s.pb_hq_city || s.location || "";
+      case "hc": return s.headcount ?? 0;
+      case "founded": return s.founded_year ?? 0;
+      case "raised": return s.total_capital_raised ?? 0;
+      case "reason": {
+        if (s.passed_headcount_filter === false) return `HC: ${s.headcount ?? 0}`;
+        if (s.passed_llm_filter === false) return "LLM";
+        return "";
+      }
+      default: return "";
+    }
+  };
+
+  const failedCompanies = [...failedCompaniesRaw].sort((a, b) => {
+    const aVal = getSortValue(a, failedSort.key);
+    const bVal = getSortValue(b, failedSort.key);
+    const cmp = typeof aVal === "number" && typeof bVal === "number"
+      ? aVal - bVal
+      : String(aVal).localeCompare(String(bVal));
+    return failedSort.dir === "asc" ? cmp : -cmp;
+  });
+
+  const handleFailedSort = (key: string) => {
+    setFailedSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" }
+    );
+  };
+
+  const handleMoveToReview = (companyId: string) => {
+    setOverrides((prev) => new Set(prev).add(companyId));
+  };
 
   const handleSelect = (companyId: string, classification: Classification) => {
     setSelected((prev) => {
@@ -407,19 +453,59 @@ export default function ReviewPage() {
               {showFailed && (
                 <div className="overflow-x-auto rounded-lg border border-gray-800/50 mt-1">
                   <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-800 bg-gray-900/30">
+                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs">#</th>
+                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("name")}>
+                          Company {failedSort.key === "name" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
+                        </th>
+                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("founded")}>
+                          Founded {failedSort.key === "founded" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
+                        </th>
+                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("hq")}>
+                          HQ City {failedSort.key === "hq" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
+                        </th>
+                        <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("hc")}>
+                          HC {failedSort.key === "hc" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
+                        </th>
+                        <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs">1yr Growth</th>
+                        <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("raised")}>
+                          Raised {failedSort.key === "raised" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
+                        </th>
+                        <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs">Last Val.</th>
+                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs">What They Do</th>
+                        <th className="text-center py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("reason")}>
+                          Reason {failedSort.key === "reason" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
+                        </th>
+                        <th className="text-center py-2 px-4 font-medium text-gray-500 text-xs">Override</th>
+                        <th className="text-center py-2 px-4 font-medium text-gray-500 text-xs">Classification</th>
+                      </tr>
+                    </thead>
                     <tbody>
                       {failedCompanies.map((company, index) => (
-                        <CompanyRow
-                          key={company.id}
-                          company={company}
-                          index={passedCompanies.length + index}
-                          selected={selected}
-                          onSelect={handleSelect}
-                          submitting={submitting}
-                          expandedRow={expandedRow}
-                          onToggleExpand={handleToggleExpand}
-                          dimmed
-                        />
+                        <React.Fragment key={company.id}>
+                          <CompanyRow
+                            company={company}
+                            index={passedCompanies.length + index}
+                            selected={selected}
+                            onSelect={handleSelect}
+                            submitting={submitting}
+                            expandedRow={expandedRow}
+                            onToggleExpand={handleToggleExpand}
+                            dimmed
+                            overrideSlot={
+                              <td className="py-3 px-4 text-center">
+                                <button
+                                  onClick={() => handleMoveToReview(company.id)}
+                                  className="px-2 py-1 text-xs font-medium text-blue-400 hover:text-blue-300 border border-blue-800 hover:border-blue-600 rounded transition-colors"
+                                  title="Move this company to the review queue"
+                                >
+                                  → Review
+                                </button>
+                              </td>
+                            }
+                          />
+                        </React.Fragment>
                       ))}
                     </tbody>
                   </table>
