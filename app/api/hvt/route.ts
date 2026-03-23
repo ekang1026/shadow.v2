@@ -57,7 +57,7 @@ export async function GET() {
   );
 
   // For website snapshots, get the latest one with a change detected per company
-  const latestChangeMap = new Map<string, (typeof websiteRes.data)[0]>();
+  const latestChangeMap = new Map<string, any>();
   for (const ws of websiteRes.data || []) {
     if (ws.change_detected && !latestChangeMap.has(ws.company_id)) {
       latestChangeMap.set(ws.company_id, ws);

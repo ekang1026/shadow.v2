@@ -28,7 +28,8 @@ async function createGmailDraft(
     `Subject: ${subject}`,
     "Content-Type: text/html; charset=utf-8",
     "",
-    htmlBody,
+    htmlBody +
+      `<br><p style="margin-top:16px;color:#333;font-size:14px;">--<br>Eddie Kang | Managing Partner<br>Gray Line Partners | 415.990.1045</p>`,
   ];
   const rawMessage = messageParts.join("\r\n");
 
@@ -58,6 +59,106 @@ async function createGmailDraft(
   }
 
   return response.json();
+}
+
+// Find CEO/founder email via Apollo.io People Search
+async function findCeoViaApollo(
+  websiteUrl: string,
+  companyName: string
+): Promise<{ email: string; name: string } | null> {
+  const apolloKey = process.env.APOLLO_API_KEY;
+  if (!apolloKey) {
+    console.error("[Apollo] APOLLO_API_KEY not set");
+    return null;
+  }
+
+  // Extract domain from website URL
+  let domain = websiteUrl;
+  try {
+    domain = new URL(websiteUrl.startsWith("http") ? websiteUrl : `https://${websiteUrl}`).hostname;
+    domain = domain.replace(/^www\./, "");
+  } catch {
+    // Use as-is if URL parsing fails
+    domain = websiteUrl.replace(/^(https?:\/\/)?(www\.)?/, "").split("/")[0];
+  }
+
+  // Search for C-level people at this domain
+  const response = await fetch("https://api.apollo.io/v1/mixed_people/api_search", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-cache",
+      "X-Api-Key": apolloKey,
+    },
+    body: JSON.stringify({
+      q_organization_domains: domain,
+      person_titles: ["CEO", "Chief Executive Officer", "Founder", "Co-Founder", "Co-Founder & CEO"],
+      page: 1,
+      per_page: 5,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    console.error(`[Apollo] API error ${response.status}: ${err}`);
+    return null;
+  }
+
+  const data = await response.json();
+  if (data.error) {
+    console.error(`[Apollo] API error: ${data.error}`);
+    return null;
+  }
+  const people = data.people || [];
+
+  if (people.length === 0) {
+    console.log(`[Apollo] No CEO/founder found for ${domain}`);
+    return null;
+  }
+
+  // Find the best match — prefer CEO, then Founder
+  const ceo = people.find((p: { title?: string }) =>
+    p.title?.toLowerCase().includes("ceo") || p.title?.toLowerCase().includes("chief executive")
+  ) || people.find((p: { title?: string }) =>
+    p.title?.toLowerCase().includes("founder")
+  ) || people[0];
+
+  console.log(`[Apollo] Found: ${ceo.first_name} (${ceo.title}), revealing email...`);
+
+  // Step 2: Reveal email via people/match
+  const matchRes = await fetch("https://api.apollo.io/v1/people/match", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-cache",
+      "X-Api-Key": apolloKey,
+    },
+    body: JSON.stringify({
+      id: ceo.id,
+      reveal_personal_emails: false,
+    }),
+  });
+
+  if (!matchRes.ok) {
+    const matchErr = await matchRes.text();
+    console.error(`[Apollo] Match error ${matchRes.status}: ${matchErr}`);
+    return null;
+  }
+
+  const matchData = await matchRes.json();
+  const person = matchData.person;
+
+  if (!person || !person.email) {
+    console.log(`[Apollo] Could not reveal email for ${ceo.first_name}`);
+    return null;
+  }
+
+  console.log(`[Apollo] Revealed: ${person.name} <${person.email}>`);
+
+  return {
+    email: person.email,
+    name: person.name || `${person.first_name} ${person.last_name}`,
+  };
 }
 
 // POST: Generate email draft for an HVT company
@@ -107,15 +208,38 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Snapshot not found" }, { status: 404 });
   }
 
-  // Check for recipient email
-  const recipientEmail = snapshot.pb_primary_contact_email;
-  const recipientName = snapshot.pb_primary_contact;
+  // Get CEO email via Apollo (primary source)
+  let recipientEmail: string | null = null;
+  let recipientName: string | null = snapshot.pb_primary_contact;
   const companyName = snapshot.name || "Unknown Company";
   const websiteUrl = snapshot.website;
 
+  if (websiteUrl) {
+    console.log(`[Draft] Looking up CEO for ${companyName} via Apollo...`);
+    try {
+      const apolloResult = await findCeoViaApollo(websiteUrl, companyName);
+      if (apolloResult) {
+        recipientEmail = apolloResult.email;
+        recipientName = apolloResult.name;
+        console.log(`[Draft] Apollo found: ${recipientName} <${recipientEmail}>`);
+
+        // Save the Apollo-found contact back to the snapshot
+        await supabase
+          .from("company_snapshots")
+          .update({
+            ceo_email: apolloResult.email,
+            ceo_name: apolloResult.name,
+          })
+          .eq("id", snapshot.id);
+      }
+    } catch (err) {
+      console.error(`[Draft] Apollo lookup failed:`, err);
+    }
+  }
+
   if (!recipientEmail) {
     return NextResponse.json(
-      { error: "No contact email found for this company (pb_primary_contact_email is empty)" },
+      { error: `No CEO email found for ${companyName} via Apollo.` },
       { status: 400 }
     );
   }
@@ -203,13 +327,53 @@ export async function POST(request: NextRequest) {
       const parsed = JSON.parse(responseText);
       emailHtml = Array.isArray(parsed) ? parsed[0] : responseText;
     } catch {
-      // If not valid JSON, use the raw response
       emailHtml = responseText;
     }
 
-    // Extract first name for subject line
-    const firstName = recipientName?.split(" ")[0] || "there";
-    const subject = `${firstName} - Gray Line Partners`;
+    // Clean up: strip any trailing "] or similar JSON artifacts
+    emailHtml = emailHtml.replace(/"\s*\]\s*$/, "").trim();
+
+    // Strip research notes - keep only the HTML email
+    // Find the first <p> tag which is the start of the actual email
+    const firstPTag = emailHtml.indexOf('<p>');
+    if (firstPTag > 0) {
+      emailHtml = emailHtml.substring(firstPTag);
+    }
+
+    // Strip trailing non-HTML artifacts (closing brackets, quotes)
+    emailHtml = emailHtml.replace(/[\]\["'\s]+$/, "").trim();
+    // Ensure it ends with a closing tag
+    if (!emailHtml.endsWith('>')) {
+      const lastClose = emailHtml.lastIndexOf('</p>');
+      if (lastClose > 0) {
+        emailHtml = emailHtml.substring(0, lastClose + 4);
+      }
+    }
+
+    // Unescape any escaped quotes from JSON parsing FIRST
+    emailHtml = emailHtml.replace(/\\"/g, '"');
+    emailHtml = emailHtml.replace(/\\\\/g, '\\');
+
+    // Determine confidence level and apply font color
+    let fontColor = "";
+    if (/Competitor confidence\s*-\s*HIGH/i.test(emailHtml)) {
+      fontColor = "green";
+    } else if (/Competitor confidence\s*-\s*MIXED/i.test(emailHtml)) {
+      fontColor = "#cc8800";
+    } else if (/Competitor confidence\s*-\s*LOW/i.test(emailHtml)) {
+      fontColor = "red";
+    }
+
+    if (fontColor) {
+      // Replace the <i style="color: ..."> with correct confidence color
+      emailHtml = emailHtml.replace(
+        /<i\s+style="[^"]*">/i,
+        `<i style="color: ${fontColor};">`
+      );
+    }
+
+    // Subject line: "Company Name || Gray Line Partners"
+    const subject = `${companyName} || Gray Line Partners`;
 
     // Create Gmail draft
     const draft = await createGmailDraft(
