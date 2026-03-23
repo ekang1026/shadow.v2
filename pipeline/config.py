@@ -19,9 +19,16 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 LLM_MODEL = "claude-sonnet-4-20250514"
 
 # PitchBook
+# IMPORTANT: Do NOT auto-login to PitchBook. Only login when user explicitly requests it.
+# PitchBook has a 10K monthly download limit. Both searches combined hit ~10K.
 PITCHBOOK_EMAIL = os.getenv("PITCHBOOK_EMAIL", "")
 PITCHBOOK_PASSWORD = os.getenv("PITCHBOOK_PASSWORD", "")
-PITCHBOOK_SEARCH_URL = os.getenv("PITCHBOOK_SEARCH_URL", "")
+PITCHBOOK_SEARCH_URLS = [
+    url.strip() for url in [
+        os.getenv("PITCHBOOK_SEARCH_URL", ""),
+        os.getenv("PITCHBOOK_SEARCH_URL_2", ""),
+    ] if url.strip()
+]
 
 # Crust Data
 CRUSTDATA_API_KEY = os.getenv("CRUSTDATA_API_KEY", "")

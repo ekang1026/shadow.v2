@@ -185,20 +185,25 @@ def ingest_rows(rows: list[dict]) -> dict:
     return stats
 
 
-def download_csv_from_pitchbook() -> str:
+def download_csvs_from_pitchbook() -> list[str]:
     """
-    Use Playwright to navigate to PitchBook, log in, and export CSV.
-    Returns the CSV content as a string.
+    Use Playwright to navigate to PitchBook, log in, and export CSVs from all saved searches.
+    Returns list of CSV content strings.
+
+    IMPORTANT: Do NOT call this unless the user explicitly requests a PitchBook download.
+    PitchBook has a 10K monthly download limit across both saved searches.
     """
     from playwright.sync_api import sync_playwright
-    from config import PITCHBOOK_EMAIL, PITCHBOOK_PASSWORD, PITCHBOOK_SEARCH_URL
+    from config import PITCHBOOK_EMAIL, PITCHBOOK_PASSWORD, PITCHBOOK_SEARCH_URLS
 
-    if not PITCHBOOK_SEARCH_URL:
-        raise ValueError("PITCHBOOK_SEARCH_URL not set in pipeline/.env")
+    if not PITCHBOOK_SEARCH_URLS:
+        raise ValueError("No PITCHBOOK_SEARCH_URL(s) set in pipeline/.env")
     if not PITCHBOOK_EMAIL or not PITCHBOOK_PASSWORD:
         raise ValueError("PITCHBOOK_EMAIL and PITCHBOOK_PASSWORD must be set in pipeline/.env")
 
-    log.info("Launching browser for PitchBook export...")
+    log.info(f"Launching browser for PitchBook export ({len(PITCHBOOK_SEARCH_URLS)} searches)...")
+
+    csv_contents = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
@@ -214,54 +219,72 @@ def download_csv_from_pitchbook() -> str:
         page.wait_for_load_state("networkidle")
         log.info("Logged into PitchBook")
 
-        page.goto(PITCHBOOK_SEARCH_URL)
-        page.wait_for_load_state("networkidle")
-        log.info("Navigated to saved search")
-
         download_path = os.path.join(os.path.dirname(__file__), "downloads")
         os.makedirs(download_path, exist_ok=True)
 
-        with page.expect_download() as download_info:
-            export_btn = page.locator('button:has-text("Export"), button:has-text("Download"), [data-testid="export"]')
-            if export_btn.count() > 0:
-                export_btn.first.click()
-            else:
-                page.click('button:has-text("Actions"), button:has-text("More")')
-                page.click('text=Export to CSV, text=Download CSV, text=Export')
+        for i, search_url in enumerate(PITCHBOOK_SEARCH_URLS):
+            log.info(f"Navigating to saved search {i + 1}/{len(PITCHBOOK_SEARCH_URLS)}: {search_url}")
+            page.goto(search_url)
+            page.wait_for_load_state("networkidle")
 
-        download = download_info.value
-        csv_path = os.path.join(download_path, download.suggested_filename)
-        download.save_as(csv_path)
-        log.info(f"Downloaded CSV: {csv_path}")
+            with page.expect_download() as download_info:
+                export_btn = page.locator('button:has-text("Export"), button:has-text("Download"), [data-testid="export"]')
+                if export_btn.count() > 0:
+                    export_btn.first.click()
+                else:
+                    page.click('button:has-text("Actions"), button:has-text("More")')
+                    page.click('text=Export to CSV, text=Download CSV, text=Export')
+
+            download = download_info.value
+            csv_path = os.path.join(download_path, download.suggested_filename)
+            download.save_as(csv_path)
+            log.info(f"Downloaded CSV {i + 1}: {csv_path}")
+
+            with open(csv_path, "r", encoding="utf-8") as f:
+                csv_contents.append(f.read())
 
         browser.close()
 
-        with open(csv_path, "r", encoding="utf-8") as f:
-            return f.read()
+    log.info(f"Downloaded {len(csv_contents)} CSV files from PitchBook")
+    return csv_contents
 
 
-def run(file_path: str = None) -> dict:
+def run(file_path: str = None, pitchbook_download: bool = False) -> dict:
     """
     Main entry point.
-    Accepts .xlsx or .csv file path, or downloads from PitchBook if no file given.
+    - file_path: local .xlsx or .csv file to ingest
+    - pitchbook_download: set to True ONLY when user explicitly requests PitchBook download
+
+    IMPORTANT: Never set pitchbook_download=True automatically.
+    PitchBook has a 10K monthly download limit.
     """
+    all_rows = []
+
     if file_path:
         ext = Path(file_path).suffix.lower()
         log.info(f"Reading from local file: {file_path}")
 
         if ext in (".xlsx", ".xls"):
-            rows = read_excel(file_path)
+            all_rows = read_excel(file_path)
         elif ext == ".csv":
             with open(file_path, "r", encoding="utf-8") as f:
-                rows = read_csv_content(f.read())
+                all_rows = read_csv_content(f.read())
         else:
             raise ValueError(f"Unsupported file format: {ext}. Use .xlsx or .csv")
-    else:
-        csv_content = download_csv_from_pitchbook()
-        rows = read_csv_content(csv_content)
 
-    log.info(f"Found {len(rows)} rows to process")
-    stats = ingest_rows(rows)
+    elif pitchbook_download:
+        log.info("PITCHBOOK DOWNLOAD: User explicitly requested download from PitchBook")
+        csv_contents = download_csvs_from_pitchbook()
+        for csv_content in csv_contents:
+            all_rows.extend(read_csv_content(csv_content))
+    else:
+        raise ValueError(
+            "No file provided and pitchbook_download not enabled. "
+            "Pass a file path or set pitchbook_download=True (only when user explicitly requests it)."
+        )
+
+    log.info(f"Found {len(all_rows)} rows to process")
+    stats = ingest_rows(all_rows)
 
     log.info(f"PitchBook ingestion complete: {stats['new']} new, {stats['updated']} updated, "
              f"{stats['skipped']} skipped, {stats['errors']} errors")
@@ -269,5 +292,14 @@ def run(file_path: str = None) -> dict:
 
 
 if __name__ == "__main__":
-    file_arg = sys.argv[1] if len(sys.argv) > 1 else None
-    run(file_path=file_arg)
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        if arg == "--pitchbook":
+            run(pitchbook_download=True)
+        else:
+            run(file_path=arg)
+    else:
+        print("Usage:")
+        print("  python3 script1_pitchbook.py /path/to/export.xlsx   # Ingest local file")
+        print("  python3 script1_pitchbook.py --pitchbook            # Download from PitchBook (uses monthly quota!)")
+        sys.exit(1)
