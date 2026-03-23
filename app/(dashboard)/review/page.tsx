@@ -209,6 +209,47 @@ export default function ReviewPage() {
   const [showFailed, setShowFailed] = useState(false);
   const [failedSort, setFailedSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "name", dir: "asc" });
   const [overrides, setOverrides] = useState<Set<string>>(new Set());
+  const [lastIngest, setLastIngest] = useState<{ last_run_at: string | null; stats: { new: number; updated: number; skipped: number; errors: number } | null; file_name?: string } | null>(null);
+  const [ingesting, setIngesting] = useState(false);
+  const [ingestStatus, setIngestStatus] = useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Fetch last ingest metadata
+  const fetchIngestMeta = useCallback(async () => {
+    try {
+      const res = await fetch("/api/ingest");
+      const data = await res.json();
+      setLastIngest(data);
+    } catch {}
+  }, []);
+
+  const handleIngest = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIngesting(true);
+    setIngestStatus(`Ingesting ${file.name}...`);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/ingest", { method: "POST", body: formData });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setIngestStatus(`Ingested ${file.name}: ${data.stats.new} new, ${data.stats.updated} updated, ${data.stats.skipped} skipped`);
+        fetchCompanies();
+        fetchIngestMeta();
+      } else {
+        setIngestStatus(`Ingest failed: ${data.error}`);
+      }
+      setTimeout(() => setIngestStatus(null), 8000);
+    } catch (err) {
+      console.error("Ingest failed:", err);
+      setIngestStatus("Ingest failed");
+      setTimeout(() => setIngestStatus(null), 5000);
+    } finally {
+      setIngesting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
@@ -224,7 +265,7 @@ export default function ReviewPage() {
     }
   }, []);
 
-  useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
+  useEffect(() => { fetchCompanies(); fetchIngestMeta(); }, [fetchCompanies, fetchIngestMeta]);
 
   // Split companies: passed on top, failed below (overrides move failed → passed)
   const passedCompanies = companies.filter((c) => {
@@ -366,6 +407,27 @@ export default function ReviewPage() {
           <span className="text-sm text-gray-500">
             {passedCompanies.length} passed{failedCompanies.length > 0 ? ` \u00b7 ${failedCompanies.length} filtered out` : ""}
           </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={ingesting}
+              className="px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:text-indigo-300 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
+            >
+              {ingesting ? "Ingesting..." : "PitchBook Ingest"}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleIngest}
+              className="hidden"
+            />
+            {lastIngest?.last_run_at && (
+              <span className="text-xs text-gray-500" title={`File: ${lastIngest.file_name || "unknown"}\nNew: ${lastIngest.stats?.new || 0}\nUpdated: ${lastIngest.stats?.updated || 0}\nSkipped: ${lastIngest.stats?.skipped || 0}`}>
+                Last: {new Date(lastIngest.last_run_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              </span>
+            )}
+          </div>
           <button onClick={fetchCompanies} className="px-3 py-1.5 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors">
             Refresh
           </button>
@@ -380,6 +442,13 @@ export default function ReviewPage() {
       {draftStatus && (
         <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${draftStatus.includes("failed") ? "bg-red-900/30 text-red-300" : draftStatus.includes("created") ? "bg-emerald-900/30 text-emerald-300" : "bg-blue-900/30 text-blue-300"}`}>
           {draftStatus}
+        </div>
+      )}
+
+      {ingestStatus && (
+        <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${ingestStatus.includes("failed") ? "bg-red-900/30 text-red-300" : ingestStatus.includes("Ingesting") ? "bg-indigo-900/30 text-indigo-300" : "bg-emerald-900/30 text-emerald-300"}`}>
+          {ingesting && <span className="inline-block w-3 h-3 border-2 border-indigo-300 border-t-transparent rounded-full animate-spin mr-2 align-middle" />}
+          {ingestStatus}
         </div>
       )}
 
