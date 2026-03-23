@@ -99,11 +99,58 @@ def clean_value(val) -> str | None:
     return val
 
 
+def parse_hyperlink(val) -> str | None:
+    """Extract URL from Excel HYPERLINK formula. e.g. =HYPERLINK("http://...", "text") → http://..."""
+    if val is None:
+        return None
+    val = str(val).strip()
+    if val.startswith('=HYPERLINK('):
+        # Extract first quoted string (the URL)
+        import re
+        match = re.search(r'=HYPERLINK\("([^"]+)"', val)
+        if match:
+            return match.group(1)
+    return val if val and val not in ("", "-", "N/A", "nan", "None") else None
+
+
 def read_excel(file_path: str) -> list[dict]:
-    """Read a PitchBook .xlsx file. Data starts at row 9 (header row 8, 0-indexed row 7)."""
-    import pandas as pd
-    df = pd.read_excel(file_path, header=7)  # Row 8 is header (0-indexed: 7)
-    return df.to_dict(orient="records")
+    """
+    Read a PitchBook .xlsx file. Data starts at row 9 (header row 8, 0-indexed row 7).
+    Handles HYPERLINK formulas in LinkedIn URL, Website, and View Company Online columns.
+    """
+    from openpyxl import load_workbook
+
+    wb = load_workbook(file_path, data_only=False)  # data_only=False to see formulas
+    ws = wb.active
+
+    # Get headers from row 8
+    header_row = 8
+    headers = [cell.value for cell in ws[header_row] if cell.value is not None]
+    num_cols = len(headers)
+
+    # Columns that may contain HYPERLINK formulas
+    hyperlink_columns = {"LinkedIn URL", "Website", "View Company Online"}
+
+    rows = []
+    for row_num in range(header_row + 1, ws.max_row + 1):
+        row_data = {}
+        for col_idx in range(num_cols):
+            cell = ws.cell(row=row_num, column=col_idx + 1)
+            header = headers[col_idx]
+            val = cell.value
+
+            # Parse HYPERLINK formulas for URL columns
+            if header in hyperlink_columns and val and str(val).startswith("=HYPERLINK"):
+                row_data[header] = parse_hyperlink(val)
+            else:
+                row_data[header] = val
+
+        # Skip empty rows
+        if row_data.get("Companies") or row_data.get("Company ID"):
+            rows.append(row_data)
+
+    log.info(f"Read {len(rows)} rows from Excel (parsed HYPERLINK formulas)")
+    return rows
 
 
 def read_csv_content(csv_content: str) -> list[dict]:
