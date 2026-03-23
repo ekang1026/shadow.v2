@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { exec } from "child_process";
+import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -22,7 +22,7 @@ export async function GET() {
   return NextResponse.json(data?.value || { last_run_at: null, stats: null });
 }
 
-// POST: Upload a PitchBook Excel/CSV file and run ingest
+// POST: Upload a PitchBook Excel/CSV file and run ingest with streaming progress
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
@@ -48,73 +48,138 @@ export async function POST(request: Request) {
     const bytes = await file.arrayBuffer();
     fs.writeFileSync(tmpPath, Buffer.from(bytes));
 
-    // Call Python script to ingest the file
     const pipelinePath = path.resolve(process.cwd(), "pipeline");
     const venvPython = path.join(pipelinePath, ".venv", "bin", "python3");
     const scriptPath = path.join(pipelinePath, "script1_pitchbook.py");
+    const startedAt = new Date();
 
-    const result = await new Promise<{
-      new: number;
-      updated: number;
-      skipped: number;
-      errors: number;
-    }>((resolve, reject) => {
-      exec(
-        `cd "${pipelinePath}" && "${venvPython}" "${scriptPath}" "${tmpPath}"`,
-        {
-          timeout: 300000, // 5 minute timeout for large files
-          env: {
-            ...process.env,
-            PYTHONPATH: pipelinePath,
-          },
-        },
-        (error, stdout, stderr) => {
+    // Create a streaming response using SSE
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+
+        const sendEvent = (type: string, data: unknown) => {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ type, ...((typeof data === 'object' && data !== null) ? data : { message: data }) })}\n\n`)
+          );
+        };
+
+        sendEvent("start", { message: `Starting ingest of ${fileName}...`, file_name: fileName });
+
+        // Spawn Python process
+        const proc = spawn(venvPython, [scriptPath, tmpPath], {
+          cwd: pipelinePath,
+          env: { ...process.env, PYTHONPATH: pipelinePath },
+        });
+
+        let fullOutput = "";
+        let lineCount = 0;
+
+        // Stream stdout line by line
+        proc.stdout.on("data", (chunk: Buffer) => {
+          const text = chunk.toString();
+          fullOutput += text;
+
+          const lines = text.split("\n").filter((l: string) => l.trim());
+          for (const line of lines) {
+            lineCount++;
+            // Extract meaningful log messages
+            const cleanLine = line.replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2},\d+\s+\[PitchBook\]\s*/, "");
+            if (cleanLine) {
+              sendEvent("log", { message: cleanLine, line: lineCount });
+            }
+          }
+        });
+
+        proc.stderr.on("data", (chunk: Buffer) => {
+          const text = chunk.toString();
+          fullOutput += text;
+          // Only send actual errors, not HTTP request logs
+          if (text.includes("Error") || text.includes("error") || text.includes("Traceback")) {
+            sendEvent("error", { message: text.trim() });
+          }
+        });
+
+        proc.on("close", async (code) => {
           // Clean up temp file
           try { fs.unlinkSync(tmpPath); } catch {}
 
-          if (error) {
-            console.error("[Ingest] Script error:", stderr);
-            reject(new Error(stderr || error.message));
-            return;
-          }
+          const completedAt = new Date();
+          const durationSeconds = Math.round((completedAt.getTime() - startedAt.getTime()) / 1000);
 
-          // Parse stats from the log output
-          // Expected: "PitchBook ingestion complete: X new, Y updated, Z skipped, W errors"
-          const match = stdout.match(
+          // Parse final stats
+          const match = fullOutput.match(
             /ingestion complete:\s*(\d+)\s*new,\s*(\d+)\s*updated,\s*(\d+)\s*skipped,\s*(\d+)\s*errors/
           );
 
-          if (match) {
-            resolve({
-              new: parseInt(match[1]),
-              updated: parseInt(match[2]),
-              skipped: parseInt(match[3]),
-              errors: parseInt(match[4]),
+          const stats = match
+            ? {
+                new: parseInt(match[1]),
+                updated: parseInt(match[2]),
+                skipped: parseInt(match[3]),
+                errors: parseInt(match[4]),
+              }
+            : { new: 0, updated: 0, skipped: 0, errors: 0 };
+
+          const status = code === 0 ? "completed" : "failed";
+
+          // Save to pipeline_runs and pipeline_metadata
+          try {
+            const supabase = await createClient();
+
+            await supabase.from("pipeline_runs").insert({
+              run_type: "pitchbook_ingest",
+              file_name: fileName,
+              started_at: startedAt.toISOString(),
+              completed_at: completedAt.toISOString(),
+              duration_seconds: durationSeconds,
+              status,
+              stats,
+              error_message: code !== 0 ? fullOutput.slice(-500) : null,
             });
-          } else {
-            console.error("[Ingest] Could not parse stats from:", stdout);
-            resolve({ new: 0, updated: 0, skipped: 0, errors: 0 });
+
+            await supabase.from("pipeline_metadata").upsert(
+              {
+                key: "pitchbook_last_ingest",
+                value: {
+                  last_run_at: completedAt.toISOString(),
+                  stats,
+                  file_name: fileName,
+                  duration_seconds: durationSeconds,
+                },
+                updated_at: completedAt.toISOString(),
+              },
+              { onConflict: "key" }
+            );
+          } catch (dbErr) {
+            console.error("[Ingest] Failed to save run metadata:", dbErr);
           }
-        }
-      );
+
+          // Send final completion event
+          sendEvent("complete", {
+            status,
+            stats,
+            file_name: fileName,
+            duration_seconds: durationSeconds,
+          });
+
+          controller.close();
+        });
+
+        proc.on("error", (err) => {
+          try { fs.unlinkSync(tmpPath); } catch {}
+          sendEvent("error", { message: `Process error: ${err.message}` });
+          controller.close();
+        });
+      },
     });
 
-    // Update pipeline metadata with last run time
-    const supabase = await createClient();
-    await supabase.from("pipeline_metadata").upsert({
-      key: "pitchbook_last_ingest",
-      value: {
-        last_run_at: new Date().toISOString(),
-        stats: result,
-        file_name: fileName,
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
       },
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "key" });
-
-    return NextResponse.json({
-      success: true,
-      stats: result,
-      file_name: fileName,
     });
   } catch (error) {
     console.error("[Ingest] Error:", error);

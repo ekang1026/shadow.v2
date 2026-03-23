@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 const navItems = [
   { href: "/review", label: "Do for Review", icon: "📋" },
   { href: "/hvt", label: "HVT", icon: "🎯" },
+  { href: "/ingestions", label: "Ingestions", icon: "📥" },
   { href: "/metrics", label: "Monthly Metrics", icon: "📊" },
   { href: "/slack", label: "Slack Integration", icon: "💬" },
 ];

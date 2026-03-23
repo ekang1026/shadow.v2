@@ -152,7 +152,9 @@ def ingest_rows(rows: list[dict]) -> dict:
                 raw_val = row[csv_col]
 
                 if field in MONEY_FIELDS:
-                    snapshot_data[field] = parse_number(raw_val)
+                    parsed = parse_number(raw_val)
+                    # Store money as integer (cents don't matter at this scale)
+                    snapshot_data[field] = int(parsed) if parsed is not None else None
                 elif field in INT_FIELDS:
                     parsed = parse_number(raw_val)
                     snapshot_data[field] = int(parsed) if parsed is not None else None

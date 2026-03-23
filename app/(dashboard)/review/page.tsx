@@ -212,7 +212,10 @@ export default function ReviewPage() {
   const [lastIngest, setLastIngest] = useState<{ last_run_at: string | null; stats: { new: number; updated: number; skipped: number; errors: number } | null; file_name?: string } | null>(null);
   const [ingesting, setIngesting] = useState(false);
   const [ingestStatus, setIngestStatus] = useState<string | null>(null);
+  const [ingestLogs, setIngestLogs] = useState<string[]>([]);
+  const [ingestSummary, setIngestSummary] = useState<{ new: number; updated: number; skipped: number; errors: number; duration_seconds: number; file_name: string } | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const logPanelRef = React.useRef<HTMLDivElement>(null);
 
   // Fetch last ingest metadata
   const fetchIngestMeta = useCallback(async () => {
@@ -228,23 +231,73 @@ export default function ReviewPage() {
     if (!file) return;
     setIngesting(true);
     setIngestStatus(`Ingesting ${file.name}...`);
+    setIngestLogs([]);
+    setIngestSummary(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
       const res = await fetch("/api/ingest", { method: "POST", body: formData });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setIngestStatus(`Ingested ${file.name}: ${data.stats.new} new, ${data.stats.updated} updated, ${data.stats.skipped} skipped`);
-        fetchCompanies();
-        fetchIngestMeta();
+
+      // Check if it's an SSE stream
+      if (res.headers.get("content-type")?.includes("text/event-stream")) {
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
+        if (!reader) throw new Error("No reader available");
+
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() || "";
+
+          for (const chunk of lines) {
+            if (!chunk.startsWith("data: ")) continue;
+            try {
+              const event = JSON.parse(chunk.replace("data: ", ""));
+              if (event.type === "log") {
+                setIngestLogs((prev) => [...prev, event.message]);
+                // Auto-scroll log panel
+                setTimeout(() => {
+                  logPanelRef.current?.scrollTo({ top: logPanelRef.current.scrollHeight });
+                }, 10);
+              } else if (event.type === "start") {
+                setIngestStatus(event.message);
+              } else if (event.type === "error") {
+                setIngestLogs((prev) => [...prev, `ERROR: ${event.message}`]);
+              } else if (event.type === "complete") {
+                setIngestSummary({
+                  ...event.stats,
+                  duration_seconds: event.duration_seconds,
+                  file_name: event.file_name,
+                });
+                if (event.status === "completed") {
+                  setIngestStatus(`Ingestion complete: ${event.stats.new} new, ${event.stats.updated} updated, ${event.stats.skipped} skipped`);
+                } else {
+                  setIngestStatus("Ingestion failed");
+                }
+                fetchCompanies();
+                fetchIngestMeta();
+              }
+            } catch {}
+          }
+        }
       } else {
-        setIngestStatus(`Ingest failed: ${data.error}`);
+        // Fallback for non-streaming response
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setIngestStatus(`Ingested ${file.name}: ${data.stats.new} new, ${data.stats.updated} updated, ${data.stats.skipped} skipped`);
+          fetchCompanies();
+          fetchIngestMeta();
+        } else {
+          setIngestStatus(`Ingest failed: ${data.error}`);
+        }
       }
-      setTimeout(() => setIngestStatus(null), 8000);
     } catch (err) {
       console.error("Ingest failed:", err);
       setIngestStatus("Ingest failed");
-      setTimeout(() => setIngestStatus(null), 5000);
     } finally {
       setIngesting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -256,7 +309,7 @@ export default function ReviewPage() {
     try {
       const res = await fetch("/api/review");
       const data = await res.json();
-      setCompanies(data);
+      setCompanies(Array.isArray(data) ? data : []);
       setSelected({});
     } catch (err) {
       console.error("Failed to fetch companies:", err);
@@ -265,7 +318,8 @@ export default function ReviewPage() {
     }
   }, []);
 
-  useEffect(() => { fetchCompanies(); fetchIngestMeta(); }, [fetchCompanies, fetchIngestMeta]);
+  useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
+  useEffect(() => { fetchIngestMeta(); }, [fetchIngestMeta]);
 
   // Split companies: passed on top, failed below (overrides move failed → passed)
   const passedCompanies = companies.filter((c) => {
@@ -445,10 +499,34 @@ export default function ReviewPage() {
         </div>
       )}
 
-      {ingestStatus && (
-        <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${ingestStatus.includes("failed") ? "bg-red-900/30 text-red-300" : ingestStatus.includes("Ingesting") ? "bg-indigo-900/30 text-indigo-300" : "bg-emerald-900/30 text-emerald-300"}`}>
-          {ingesting && <span className="inline-block w-3 h-3 border-2 border-indigo-300 border-t-transparent rounded-full animate-spin mr-2 align-middle" />}
-          {ingestStatus}
+      {(ingestStatus || ingestLogs.length > 0) && (
+        <div className="mb-4 rounded-lg border border-gray-700 overflow-hidden">
+          <div className={`px-4 py-2 text-sm flex items-center justify-between ${ingestStatus?.includes("failed") ? "bg-red-900/30 text-red-300" : ingestStatus?.includes("complete") ? "bg-emerald-900/30 text-emerald-300" : "bg-indigo-900/30 text-indigo-300"}`}>
+            <div>
+              {ingesting && <span className="inline-block w-3 h-3 border-2 border-indigo-300 border-t-transparent rounded-full animate-spin mr-2 align-middle" />}
+              {ingestStatus}
+            </div>
+            {ingestSummary && (
+              <span className="text-xs text-gray-400">{ingestSummary.duration_seconds}s</span>
+            )}
+          </div>
+          {ingestLogs.length > 0 && (
+            <div ref={logPanelRef} className="bg-gray-950 px-4 py-2 max-h-48 overflow-y-auto font-mono text-xs text-gray-400 space-y-0.5">
+              {ingestLogs.map((log, i) => (
+                <div key={i} className={log.startsWith("ERROR") ? "text-red-400" : log.includes("Added") ? "text-emerald-400" : log.includes("Updated") ? "text-blue-400" : log.includes("Skipping") ? "text-gray-600" : ""}>
+                  {log}
+                </div>
+              ))}
+            </div>
+          )}
+          {ingestSummary && (
+            <div className="bg-gray-900/50 px-4 py-3 grid grid-cols-4 gap-4 text-center border-t border-gray-800">
+              <div><div className="text-lg font-bold text-emerald-400">{ingestSummary.new}</div><div className="text-xs text-gray-500">New</div></div>
+              <div><div className="text-lg font-bold text-blue-400">{ingestSummary.updated}</div><div className="text-xs text-gray-500">Updated</div></div>
+              <div><div className="text-lg font-bold text-gray-400">{ingestSummary.skipped}</div><div className="text-xs text-gray-500">Skipped</div></div>
+              <div><div className="text-lg font-bold text-red-400">{ingestSummary.errors}</div><div className="text-xs text-gray-500">Errors</div></div>
+            </div>
+          )}
         </div>
       )}
 
