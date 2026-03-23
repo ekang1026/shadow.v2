@@ -23,6 +23,8 @@ interface HVTCompany {
     total_capital_raised: number | null;
     last_round_valuation: number | null;
     what_they_do: string | null;
+    competitors: { name: string; source: string; rationale: string }[] | null;
+    competitor_confidence: string | null;
   } | null;
   outreach: {
     outreach_count: number;
@@ -253,12 +255,42 @@ export default function HVTPage() {
                   {isExpanded && (
                     <tr className="bg-gray-900/30">
                       <td colSpan={12} className="px-4 py-4">
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pl-6">
+                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 pl-6">
                           <div className="bg-gray-800/50 rounded-lg p-4">
                             <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">What They Do</h4>
                             <p className="text-sm text-gray-300 leading-relaxed">{s?.what_they_do || "No summary available."}</p>
                             {s?.ceo_email && (<div className="mt-3 pt-3 border-t border-gray-700"><span className="text-xs text-gray-500">CEO Email: </span><a href={`mailto:${s.ceo_email}`} className="text-xs text-blue-400 hover:text-blue-300" onClick={(e) => e.stopPropagation()}>{s.ceo_email}</a></div>)}
                             {s?.ceo_phone && (<div className="mt-1"><span className="text-xs text-gray-500">CEO Phone: </span><span className="text-xs text-gray-300">{s.ceo_phone}</span></div>)}
+                          </div>
+                          <div className="bg-gray-800/50 rounded-lg p-4">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Competitors</h4>
+                              {s?.competitor_confidence && (
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                  s.competitor_confidence === "HIGH" ? "bg-emerald-900/50 text-emerald-300" :
+                                  s.competitor_confidence === "MIXED" ? "bg-yellow-900/50 text-yellow-300" :
+                                  "bg-red-900/50 text-red-300"
+                                }`} title={`Competitor confidence: ${s.competitor_confidence}`}>{s.competitor_confidence}</span>
+                              )}
+                            </div>
+                            {s?.competitors && s.competitors.length > 0 ? (
+                              <div className="space-y-2">
+                                {s.competitors.map((comp, idx) => (
+                                  <div key={idx} className="group relative border-l-2 border-gray-700 pl-3">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm text-gray-200 font-medium">{comp.name}</span>
+                                      <span className={`text-[9px] px-1 py-0.5 rounded ${
+                                        comp.source === "website_positioning" ? "bg-purple-900/50 text-purple-300" :
+                                        comp.source === "google_ads" ? "bg-amber-900/50 text-amber-300" :
+                                        comp.source === "market_overlap" ? "bg-blue-900/50 text-blue-300" :
+                                        "bg-gray-700 text-gray-400"
+                                      }`} title={`Source: ${comp.source}`}>{comp.source.replace("_", " ")}</span>
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-0.5">{comp.rationale}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (<p className="text-sm text-gray-500 italic">No competitors identified yet.</p>)}
                           </div>
                           <div className="bg-gray-800/50 rounded-lg p-4">
                             <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Latest Website Change</h4>

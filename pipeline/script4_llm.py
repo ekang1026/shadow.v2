@@ -151,6 +151,94 @@ def build_what_they_do(survey: dict) -> str:
     return f"{', '.join(offering) if isinstance(offering, list) else offering} company. {market} focus. {naics}."[:500]
 
 
+def research_competitors(client: Anthropic, company_name: str,
+                         website_text: str, survey: dict,
+                         ad_competitors: list[dict] = None) -> tuple[list[dict], str]:
+    """
+    Separate competitor research step at temperature 0.7 for better discovery.
+    Returns (competitors_list, confidence_level).
+    Each competitor: {name, source, rationale}
+    """
+    # Build context from the survey results
+    context_parts = [
+        f"Company: {company_name}",
+        f"What they do: {survey.get('offering_type_evidence', '')}",
+        f"Market focus: {survey.get('market_focus', '')}",
+        f"Vertical: {survey.get('vertical_type', '')}",
+        f"NAICS: {survey.get('NAICS_3digit_name', '')}",
+        f"Customers: {', '.join(survey.get('customers_named') or [])}",
+        f"Product category: {survey.get('product_category', '')}",
+    ]
+
+    ad_comp_text = ""
+    if ad_competitors:
+        ad_comp_text = "\nGoogle Ads competitors (companies buying ads against this company's name):\n"
+        for c in ad_competitors:
+            ad_comp_text += f"- {c['name']} ({c['url']})\n"
+
+    prompt = f"""You are a growth equity analyst researching the competitive landscape for {company_name}.
+
+<company-context>
+{chr(10).join(context_parts)}
+</company-context>
+
+<website-content>
+{website_text[:8000]}
+</website-content>
+{ad_comp_text}
+
+Identify exactly 3 realistic competitors that a CEO of {company_name} would recognize in a buying conversation.
+
+Competitors must:
+- Appear in {company_name}'s own language, customer context, or comparisons, OR
+- Compete in the same narrow workflow or use case
+- Be companies a buyer would actually evaluate as alternatives
+
+Do NOT:
+- Include generic platforms or category incumbents unless explicitly positioned against
+- Guess or inflate with well-known brands
+- Use adjacent tools unless no direct competitors exist
+
+For each competitor, provide:
+- name: The competitor company name
+- source: Where you found evidence (one of: "website_positioning", "google_ads", "market_overlap", "adjacent_tool")
+- rationale: One sentence explaining why this is a real competitor
+
+Also determine your confidence level:
+- HIGH: All 3 competitors are real, defensible, and would be recognized by the CEO
+- MIXED: Some competitors are confident, others are adjacent or uncertain
+- LOW: Could not confidently identify direct competitors; these are adjacent at best
+
+Return ONLY a JSON object in this format:
+{{"competitors": [{{"name": "...", "source": "...", "rationale": "..."}}, ...], "confidence": "HIGH|MIXED|LOW"}}
+"""
+
+    try:
+        response = client.messages.create(
+            model=LLM_MODEL,
+            max_tokens=800,
+            temperature=0.7,  # Higher temp for better research/discovery
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        text = response.content[0].text.strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+
+        result = json.loads(text)
+        competitors = result.get("competitors", [])
+        confidence = result.get("confidence", "LOW")
+
+        log.info(f"    Competitors ({confidence}): {', '.join(c['name'] for c in competitors)}")
+        return competitors, confidence
+
+    except Exception as e:
+        log.warning(f"    Competitor research failed for {company_name}: {e}")
+        return [], "LOW"
+
+
 def extract_survey_fields(survey: dict) -> dict:
     """
     Extract structured fields from the survey JSON for database storage.
@@ -246,6 +334,14 @@ def run(scraped_results: list[dict] = None) -> dict:
                 "llm_survey": survey,  # Store full survey JSON
                 **fields,
             }
+
+            # Run competitor research for companies that pass
+            if passed:
+                competitors, comp_confidence = research_competitors(
+                    client, company_name, website_text, survey, ad_competitors
+                )
+                update_data["competitors"] = competitors
+                update_data["competitor_confidence"] = comp_confidence
 
             update_snapshot(snapshot_id, update_data)
 

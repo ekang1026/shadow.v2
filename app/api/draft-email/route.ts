@@ -291,6 +291,12 @@ export async function POST(request: NextRequest) {
     `Founded: ${snapshot.founded_year || "N/A"}`,
     `Employees: ${snapshot.headcount || snapshot.pb_employees || "N/A"}`,
     `Google Ad Competitors: ${snapshot.google_ad_competitors?.join(", ") || "None found via Google Ads"}`,
+    `Competitor Confidence: ${snapshot.competitor_confidence || "N/A"}`,
+    `Pre-Researched Competitors: ${snapshot.competitors && snapshot.competitors.length > 0
+      ? snapshot.competitors.map((c: { name: string; source: string; rationale: string }) =>
+          `${c.name} (source: ${c.source}, rationale: ${c.rationale})`
+        ).join("; ")
+      : "None pre-researched"}`,
   ].join("\n");
 
   // Load prompt template and fill in variables
