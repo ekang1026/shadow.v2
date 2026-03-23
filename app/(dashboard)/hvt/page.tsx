@@ -74,6 +74,10 @@ export default function HVTPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [drafting, setDrafting] = useState(false);
   const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addUrl, setAddUrl] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [addStatus, setAddStatus] = useState<string | null>(null);
 
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
@@ -132,6 +136,35 @@ export default function HVTPage() {
     }
   };
 
+  const handleAddHVT = async () => {
+    if (!addUrl.trim()) return;
+    setAdding(true);
+    setAddStatus("Adding company... (scraping website, LinkedIn, running LLM survey)");
+    try {
+      const res = await fetch("/api/hvt/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: addUrl.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAddStatus(`Added ${data.company_name} as HVT (HC: ${data.headcount || "N/A"}, Competitors: ${data.competitors?.join(", ") || "none"})`);
+        setAddUrl("");
+        setShowAddForm(false);
+        fetchCompanies();
+      } else {
+        setAddStatus(`Failed: ${data.error || "Unknown error"}`);
+      }
+      setTimeout(() => setAddStatus(null), 8000);
+    } catch (err) {
+      console.error("Add HVT failed:", err);
+      setAddStatus("Failed to add company");
+      setTimeout(() => setAddStatus(null), 5000);
+    } finally {
+      setAdding(false);
+    }
+  };
+
   const formatGrowth = (growth: number | null) => {
     if (growth === null || growth === undefined) return "\u2014";
     const pct = (growth * 100).toFixed(0);
@@ -153,6 +186,9 @@ export default function HVTPage() {
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-500">{companies.length} {companies.length === 1 ? "target" : "targets"}</span>
           <button onClick={fetchCompanies} className="px-3 py-1.5 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors">Refresh</button>
+          <button onClick={() => setShowAddForm(!showAddForm)} className="px-3 py-1.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors">
+            {showAddForm ? "Cancel" : "+ Add Company"}
+          </button>
           {selectedIds.size > 0 && (
             <button onClick={handleDraftEmails} disabled={drafting} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:text-blue-300 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed">
               {drafting ? "Drafting..." : `Draft ${selectedIds.size} Email${selectedIds.size > 1 ? "s" : ""}`}
@@ -161,9 +197,41 @@ export default function HVTPage() {
         </div>
       </div>
 
+      {showAddForm && (
+        <div className="mb-4 p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-gray-400 whitespace-nowrap">Company Website:</label>
+            <input
+              type="text"
+              value={addUrl}
+              onChange={(e) => setAddUrl(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !adding) handleAddHVT(); }}
+              placeholder="e.g. archiveintel.com"
+              className="flex-1 px-3 py-1.5 text-sm bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500"
+              disabled={adding}
+            />
+            <button
+              onClick={handleAddHVT}
+              disabled={adding || !addUrl.trim()}
+              className="px-4 py-1.5 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
+            >
+              {adding ? "Adding..." : "Add to HVT"}
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">Scrapes website, LinkedIn (pre-paywall), runs LLM survey, and researches competitors. Takes ~30 seconds.</p>
+        </div>
+      )}
+
       {draftStatus && (
         <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${draftStatus.includes("failed") ? "bg-red-900/30 text-red-300" : draftStatus.includes("created") ? "bg-emerald-900/30 text-emerald-300" : "bg-blue-900/30 text-blue-300"}`}>
           {draftStatus}
+        </div>
+      )}
+
+      {addStatus && (
+        <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${addStatus.includes("Failed") ? "bg-red-900/30 text-red-300" : addStatus.includes("Added") ? "bg-emerald-900/30 text-emerald-300" : "bg-blue-900/30 text-blue-300"}`}>
+          {adding && <span className="inline-block w-3 h-3 border-2 border-blue-300 border-t-transparent rounded-full animate-spin mr-2 align-middle" />}
+          {addStatus}
         </div>
       )}
 
