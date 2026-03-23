@@ -5,6 +5,8 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 
+export const dynamic = "force-dynamic";
+
 // GET: Return last ingest metadata
 export async function GET() {
   const supabase = await createClient();

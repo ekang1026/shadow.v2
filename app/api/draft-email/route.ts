@@ -5,6 +5,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "fs";
 import { join } from "path";
 
+export const dynamic = "force-dynamic";
+
 // Load the email prompt template
 function loadEmailPrompt(): string {
   try {

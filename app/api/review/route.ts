@@ -1,67 +1,82 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 
-// GET: Fetch all pending companies with their latest snapshots
+// Force dynamic — never cache this route
+export const dynamic = "force-dynamic";
+
+// GET: Fetch pending companies that have been evaluated by the pipeline
 export async function GET() {
-  const supabase = await createClient();
+  try {
+    const supabase = await createClient();
 
-  // Fetch pending companies with pagination (Supabase default limit is 1000)
-  const allCompanies: Record<string, unknown>[] = [];
-  let page = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("companies")
-      .select("*")
-      .eq("status", "pending")
-      .order("created_at", { ascending: true })
-      .range(page * pageSize, (page + 1) * pageSize - 1);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    if (!data || data.length === 0) break;
-    allCompanies.push(...data);
-    if (data.length < pageSize) break;
-    page++;
-  }
-
-  if (allCompanies.length === 0) {
-    return NextResponse.json([]);
-  }
-
-  // Fetch snapshots in batches of 500 IDs (URL length limit)
-  const allSnapshots: Record<string, unknown>[] = [];
-  const companyIds = allCompanies.map((c) => c.id as string);
-
-  for (let i = 0; i < companyIds.length; i += 500) {
-    const batchIds = companyIds.slice(i, i + 500);
-    const { data: snapshots, error: snapshotsError } = await supabase
+    // Query snapshots that have been evaluated — use neq to filter out nulls
+    // Fetch in two passes: those that passed HC and those that failed HC
+    const { data: passedSnapshots, error: passedError } = await supabase
       .from("company_snapshots")
       .select("*")
-      .in("company_id", batchIds)
-      .eq("is_latest", true);
+      .eq("is_latest", true)
+      .eq("passed_headcount_filter", true)
+      .limit(1000);
 
-    if (snapshotsError) {
-      return NextResponse.json({ error: snapshotsError.message }, { status: 500 });
+    if (passedError) {
+      console.error("[Review API] Passed query error:", passedError);
+      return NextResponse.json({ error: passedError.message }, { status: 500 });
     }
 
-    if (snapshots) allSnapshots.push(...snapshots);
+    const { data: failedSnapshots, error: failedError } = await supabase
+      .from("company_snapshots")
+      .select("*")
+      .eq("is_latest", true)
+      .eq("passed_headcount_filter", false)
+      .limit(1000);
+
+    if (failedError) {
+      console.error("[Review API] Failed query error:", failedError);
+      return NextResponse.json({ error: failedError.message }, { status: 500 });
+    }
+
+    const allSnapshots = [...(passedSnapshots || []), ...(failedSnapshots || [])];
+
+    if (allSnapshots.length === 0) {
+      return NextResponse.json([]);
+    }
+
+    // Fetch only the pending companies for these snapshots
+    // Use small batches (100) to avoid URL length / headers overflow with UUIDs
+    const companyIds = [...new Set(allSnapshots.map((s) => s.company_id as string))];
+    const allCompanies: Record<string, unknown>[] = [];
+
+    for (let i = 0; i < companyIds.length; i += 100) {
+      const batchIds = companyIds.slice(i, i + 100);
+      const { data: companies, error: companiesError } = await supabase
+        .from("companies")
+        .select("*")
+        .in("id", batchIds)
+        .eq("status", "pending");
+
+      if (companiesError) {
+        console.error("[Review API] Companies query error:", companiesError);
+        return NextResponse.json({ error: companiesError.message }, { status: 500 });
+      }
+
+      if (companies) allCompanies.push(...companies);
+    }
+
+    // Join companies with their snapshots
+    const snapshotMap = new Map(
+      allSnapshots.map((s) => [s.company_id as string, s])
+    );
+
+    const result = allCompanies.map((company) => ({
+      ...company,
+      snapshot: snapshotMap.get(company.id as string) || null,
+    }));
+
+    return NextResponse.json(result);
+  } catch (err) {
+    console.error("[Review API] Unhandled error:", err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
   }
-
-  // Join companies with their snapshots
-  const snapshotMap = new Map(
-    allSnapshots.map((s) => [s.company_id as string, s])
-  );
-
-  const result = allCompanies.map((company) => ({
-    ...company,
-    snapshot: snapshotMap.get(company.id as string) || null,
-  }));
-
-  return NextResponse.json(result);
 }
 
 // POST: Classify a company

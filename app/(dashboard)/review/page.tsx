@@ -272,8 +272,9 @@ export default function ReviewPage() {
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/review");
+      const res = await fetch(`/api/review?t=${Date.now()}`, { cache: "no-store" });
       const data = await res.json();
+      console.log("[Review] API returned", Array.isArray(data) ? data.length : 0, "companies");
       setCompanies(Array.isArray(data) ? data : []);
       setSelected({});
     } catch (err) {
@@ -286,21 +287,21 @@ export default function ReviewPage() {
   useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
   useEffect(() => { fetchIngestMeta(); }, [fetchIngestMeta]);
 
-  // Split companies: passed on top, failed below (overrides move failed → passed)
+  // Split companies: passed = both HC and LLM are explicitly true
+  // Failed/filtered = either filter is false, or not yet evaluated (null)
   const passedCompanies = companies.filter((c) => {
     if (overrides.has(c.id)) return true;
     const s = c.snapshot;
     if (!s) return false;
-    const hcOk = s.passed_headcount_filter !== false;
-    const llmOk = s.passed_llm_filter !== false;
-    return hcOk && llmOk;
+    return s.passed_headcount_filter === true && s.passed_llm_filter === true;
   });
 
   const failedCompaniesRaw = companies.filter((c) => {
     if (overrides.has(c.id)) return false;
     const s = c.snapshot;
     if (!s) return false;
-    return s.passed_headcount_filter === false || s.passed_llm_filter === false;
+    // Everything that didn't pass both filters goes here
+    return !(s.passed_headcount_filter === true && s.passed_llm_filter === true);
   });
 
   // Sort failed companies

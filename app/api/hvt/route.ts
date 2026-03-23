@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 // GET: Fetch all HVT companies with snapshots, outreach, website changes, and LinkedIn posts
 export async function GET() {
   const supabase = await createClient();
