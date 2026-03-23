@@ -32,6 +32,7 @@ interface ReviewCompany {
     revenue_model: string[] | null;
     vertical_type: string | null;
     disfavored_vertical: string | null;
+    is_subsidiary: boolean | null;
     customers_named: string[] | null;
     success_indicators_present: boolean | null;
     agentic_features_present: boolean | null;
@@ -99,8 +100,22 @@ function CompanyRow({
   // Determine fail reason for dimmed rows
   const getFailReason = (): string | null => {
     if (!s) return "No data";
-    if (s.passed_headcount_filter === false) return `HC: ${s.headcount ?? "?"} (outside 8-30)`;
-    if (s.passed_llm_filter === false) return "Failed LLM survey";
+    if (s.passed_headcount_filter === false) {
+      if (s.headcount_error) return "HC: N/A";
+      return `HC: ${s.headcount ?? "?"} (outside 8-30)`;
+    }
+    if (s.passed_llm_filter === false) {
+      const reasons: string[] = [];
+      const ot = s.offering_type || [];
+      const ct = s.customer_type || [];
+      if (!ot.includes("Software")) reasons.push("Not software");
+      if (!ct.includes("Business")) reasons.push("Not B2B");
+      if (s.disfavored_vertical) reasons.push("Disfavored vertical");
+      if (ot.length === 1 && ot[0] === "Services") reasons.push("Services-only");
+      if (ot.length === 1 && ot[0] === "Marketplace") reasons.push("Pure marketplace");
+      if (s.is_subsidiary) reasons.push("Subsidiary");
+      return reasons.length > 0 ? reasons.join(" · ") : "Failed LLM";
+    }
     return null;
   };
 
@@ -125,9 +140,6 @@ function CompanyRow({
             )}
             {company.review_count > 0 && (
               <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-gray-700 text-gray-300 text-xs font-medium" title={`Reviewed ${company.review_count} time${company.review_count === 1 ? "" : "s"} before`}>{company.review_count}</span>
-            )}
-            {failReason && (
-              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-red-900/50 text-red-400">{failReason}</span>
             )}
           </div>
         </td>
@@ -160,6 +172,13 @@ function CompanyRow({
             <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400" title={s.agentic_feature_types?.join(", ") || "Agentic features present"} />
           ) : <span className="text-gray-600 text-xs">{"\u2014"}</span>}
         </td>
+        {dimmed && (
+          <td className="py-3 px-4 text-center">
+            {failReason && (
+              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-red-900/50 text-red-400">{failReason}</span>
+            )}
+          </td>
+        )}
         {overrideSlot}
         <td className="py-3 px-4">
           <div className="flex items-center justify-center gap-1">
@@ -206,8 +225,14 @@ export default function ReviewPage() {
   const [submitting, setSubmitting] = useState(false);
   const [selected, setSelected] = useState<Record<string, Classification>>({});
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [showPassed, setShowPassed] = useState(true);
   const [showFailed, setShowFailed] = useState(false);
+  const [showPending, setShowPending] = useState(false);
+  const [pendingSelected, setPendingSelected] = useState<Set<string>>(new Set());
+  const [runningEval, setRunningEval] = useState(false);
+  const [evalLogs, setEvalLogs] = useState<string[]>([]);
   const [failedSort, setFailedSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "name", dir: "asc" });
+  const [failedReasonFilter, setFailedReasonFilter] = useState<string | null>(null);
   const [passedSort, setPassedSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "name", dir: "asc" });
   const [overrides, setOverrides] = useState<Set<string>>(new Set());
   const [lastIngest, setLastIngest] = useState<{ last_run_at: string | null; stats: { new: number; updated: number; skipped: number; errors: number } | null; file_name?: string } | null>(null);
@@ -301,9 +326,18 @@ export default function ReviewPage() {
     if (overrides.has(c.id)) return false;
     const s = c.snapshot;
     if (!s) return false;
-    // Everything that didn't pass both filters goes here
-    return !(s.passed_headcount_filter === true && s.passed_llm_filter === true);
+    // Only show companies that explicitly FAILED a filter (not pending evaluation)
+    return s.passed_headcount_filter === false || s.passed_llm_filter === false;
   });
+
+  // Pending evaluation companies (not yet scraped/surveyed)
+  const pendingEvalCompanies = companies.filter((c) => {
+    const s = c.snapshot;
+    if (!s) return false;
+    return (s.passed_headcount_filter === null || s.passed_llm_filter === null)
+      && s.passed_headcount_filter !== false && s.passed_llm_filter !== false;
+  });
+  const pendingEvalCount = pendingEvalCompanies.length;
 
   // Sort helper
   const getSortValue = (c: ReviewCompany, key: string): string | number => {
@@ -319,9 +353,22 @@ export default function ReviewPage() {
       case "lastval": return s.last_round_valuation ?? 0;
       case "ingest_count": return c.review_count ?? 0;
       case "reason": {
-        if (s.passed_headcount_filter === false) return `HC: ${s.headcount ?? 0}`;
-        if (s.passed_llm_filter === false) return "LLM";
-        return "";
+        if (s.passed_headcount_filter === false) {
+          if (s.headcount_error) return "A_HC N/A";
+          return `B_HC ${String(s.headcount ?? 0).padStart(5, "0")}`;
+        }
+        if (s.passed_llm_filter === false) {
+          const ot = s.offering_type || [];
+          const ct = s.customer_type || [];
+          if (!ot.includes("Software")) return "C_Not software";
+          if (!ct.includes("Business")) return "D_Not B2B";
+          if (s.disfavored_vertical) return "E_Disfavored";
+          if (ot.length === 1 && ot[0] === "Services") return "F_Services-only";
+          if (ot.length === 1 && ot[0] === "Marketplace") return "G_Marketplace";
+          if (s.is_subsidiary) return "H_Subsidiary";
+          return "I_Failed LLM";
+        }
+        return "Z_Unknown";
       }
       default: return "";
     }
@@ -339,7 +386,39 @@ export default function ReviewPage() {
   };
 
   const sortedPassedCompanies = sortCompanies(passedCompanies, passedSort);
-  const failedCompanies = sortCompanies(failedCompaniesRaw, failedSort);
+
+  // Categorize each failed company by primary reason
+  const getReasonCategory = (c: ReviewCompany): string => {
+    const s = c.snapshot;
+    if (!s) return "Unknown";
+    if (s.passed_headcount_filter === false) return "Headcount";
+    if (s.passed_llm_filter === false) {
+      const ot = s.offering_type || [];
+      const ct = s.customer_type || [];
+      if (!ot.includes("Software")) return "Not Software";
+      if (!ct.includes("Business")) return "Not B2B";
+      if (s.is_subsidiary) return "Subsidiary";
+      if (s.disfavored_vertical) return "Disfavored Vertical";
+      if (ot.length === 1 && ot[0] === "Services") return "Services-only";
+      if (ot.length === 1 && ot[0] === "Marketplace") return "Marketplace";
+      return "Other LLM Fail";
+    }
+    return "Pending";
+  };
+
+  // Count by reason
+  const reasonCounts: Record<string, number> = {};
+  for (const c of failedCompaniesRaw) {
+    const reason = getReasonCategory(c);
+    reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+  }
+
+  // Apply reason filter
+  const filteredFailedCompanies = failedReasonFilter
+    ? failedCompaniesRaw.filter((c) => getReasonCategory(c) === failedReasonFilter)
+    : failedCompaniesRaw;
+
+  const failedCompanies = sortCompanies(filteredFailedCompanies, failedSort);
 
   const handlePassedSort = (key: string) => {
     setPassedSort((prev) =>
@@ -442,7 +521,7 @@ export default function ReviewPage() {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-500">
-            {passedCompanies.length} passed{failedCompanies.length > 0 ? ` \u00b7 ${failedCompanies.length} filtered out` : ""}
+            {passedCompanies.length} passed{failedCompaniesRaw.length > 0 ? ` · ${failedCompaniesRaw.length} filtered out` : ""}{pendingEvalCount > 0 ? ` · ${pendingEvalCount} not yet AI evaluated` : ""}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -539,9 +618,19 @@ export default function ReviewPage() {
         </div>
       ) : (
         <>
-          {/* Passed companies table */}
-          <div className="overflow-x-auto rounded-lg border border-gray-800">
-            <table className="w-full text-sm">
+          {/* Passed companies — collapsible */}
+          <div className="mb-2">
+            <button
+              onClick={() => setShowPassed(!showPassed)}
+              className="flex items-center gap-2 px-4 py-2 text-sm text-gray-400 hover:text-gray-200 transition-colors w-full"
+            >
+              <span className={`transition-transform duration-200 ${showPassed ? "rotate-90" : ""}`}>&#9654;</span>
+              <span className="font-medium">{passedCompanies.length} {passedCompanies.length === 1 ? "company" : "companies"} passed all filters</span>
+              <span className="text-gray-600 text-xs ml-1">(ready for classification)</span>
+            </button>
+            {showPassed && (
+              <div className="overflow-x-auto rounded-lg border border-gray-800 mt-1">
+                <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-800 bg-gray-900/50">
                   <th className="text-left py-3 px-4 font-medium text-gray-400">#</th>
@@ -588,21 +677,41 @@ export default function ReviewPage() {
                   />
                 ))}
               </tbody>
-            </table>
+              </table>
+              </div>
+            )}
           </div>
 
           {/* Failed companies — collapsible */}
-          {failedCompanies.length > 0 && (
+          {failedCompaniesRaw.length > 0 && (
             <div className="mt-4">
               <button
                 onClick={() => setShowFailed(!showFailed)}
                 className="flex items-center gap-2 px-4 py-2 text-sm text-gray-500 hover:text-gray-300 transition-colors w-full"
               >
                 <span className={`transition-transform duration-200 ${showFailed ? "rotate-90" : ""}`}>&#9654;</span>
-                <span>{failedCompanies.length} {failedCompanies.length === 1 ? "company" : "companies"} filtered out</span>
+                <span>{failedCompaniesRaw.length} {failedCompaniesRaw.length === 1 ? "company" : "companies"} filtered out</span>
                 <span className="text-gray-600 text-xs ml-1">(failed headcount or LLM filter)</span>
               </button>
               {showFailed && (
+                <div>
+                <div className="flex flex-wrap gap-2 px-4 py-2">
+                  <button
+                    onClick={() => setFailedReasonFilter(null)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${!failedReasonFilter ? "bg-gray-600 text-white" : "bg-gray-800 text-gray-400 hover:text-gray-200"}`}
+                  >
+                    All ({failedCompaniesRaw.length})
+                  </button>
+                  {Object.entries(reasonCounts).sort((a, b) => b[1] - a[1]).map(([reason, count]) => (
+                    <button
+                      key={reason}
+                      onClick={() => setFailedReasonFilter(failedReasonFilter === reason ? null : reason)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${failedReasonFilter === reason ? "bg-red-900 text-red-300 ring-1 ring-red-700" : "bg-gray-800 text-gray-400 hover:text-gray-200"}`}
+                    >
+                      {reason} ({count})
+                    </button>
+                  ))}
+                </div>
                 <div className="overflow-x-auto rounded-lg border border-gray-800/50 mt-1">
                   <table className="w-full text-sm">
                     <thead>
@@ -620,11 +729,15 @@ export default function ReviewPage() {
                         <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("hc")}>
                           HC {failedSort.key === "hc" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
                         </th>
-                        <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs">1yr Growth</th>
+                        <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("growth")}>
+                          1yr Growth {failedSort.key === "growth" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
+                        </th>
                         <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("raised")}>
                           Raised {failedSort.key === "raised" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
                         </th>
-                        <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs">Last Val.</th>
+                        <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("lastval")}>
+                          Last Val. {failedSort.key === "lastval" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
+                        </th>
                         <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs">What They Do</th>
                         <th className="text-center py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("reason")}>
                           Reason {failedSort.key === "reason" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
@@ -661,6 +774,180 @@ export default function ReviewPage() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Pending evaluation — 3rd collapsible section */}
+          {pendingEvalCompanies.length > 0 && (
+            <div className="mt-4">
+              <button
+                onClick={() => setShowPending(!showPending)}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-500 hover:text-gray-300 transition-colors w-full"
+              >
+                <span className={`transition-transform duration-200 ${showPending ? "rotate-90" : ""}`}>&#9654;</span>
+                <span>{pendingEvalCompanies.length} {pendingEvalCompanies.length === 1 ? "company" : "companies"} not yet AI evaluated</span>
+                <span className="text-gray-600 text-xs ml-1">(awaiting LinkedIn scrape or LLM survey)</span>
+              </button>
+              {showPending && (
+                <div>
+                {pendingSelected.size > 0 && (
+                  <div className="flex items-center gap-3 px-4 py-2">
+                    <button
+                      onClick={async () => {
+                        setRunningEval(true);
+                        setEvalLogs([]);
+                        try {
+                          const res = await fetch("/api/evaluate", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ companyIds: Array.from(pendingSelected) }),
+                          });
+                          const reader = res.body?.getReader();
+                          const decoder = new TextDecoder();
+                          if (reader) {
+                            let buffer = "";
+                            while (true) {
+                              const { done, value } = await reader.read();
+                              if (done) break;
+                              buffer += decoder.decode(value, { stream: true });
+                              const lines = buffer.split("\n\n");
+                              buffer = lines.pop() || "";
+                              for (const line of lines) {
+                                if (line.startsWith("data: ")) {
+                                  const data = JSON.parse(line.slice(6));
+                                  if (data.type === "processing") {
+                                    setEvalLogs((prev) => [...prev, `Evaluating: ${data.name}...`]);
+                                  } else if (data.type === "passed") {
+                                    setEvalLogs((prev) => [...prev, `✓ ${data.name} — PASSED (${data.market} / ${data.vertical})`]);
+                                  } else if (data.type === "failed") {
+                                    setEvalLogs((prev) => [...prev, `✗ ${data.name} — FAILED (${data.reasons?.join(", ")})`]);
+                                  } else if (data.type === "skip") {
+                                    setEvalLogs((prev) => [...prev, `⚠ ${data.name} — Skipped: ${data.reason}`]);
+                                  } else if (data.type === "error") {
+                                    setEvalLogs((prev) => [...prev, `⚠ Error: ${data.reason}`]);
+                                  } else if (data.type === "complete") {
+                                    setEvalLogs((prev) => [...prev, `\nDone: ${data.passed} passed, ${data.failed} failed, ${data.errors} errors`]);
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        } catch (err) {
+                          setEvalLogs((prev) => [...prev, `Error: ${err}`]);
+                        }
+                        setRunningEval(false);
+                        setPendingSelected(new Set());
+                        // Refresh data
+                        const res = await fetch(`/api/review?t=${Date.now()}`);
+                        if (res.ok) setCompanies(await res.json());
+                      }}
+                      disabled={runningEval}
+                      className="px-3 py-1.5 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 disabled:bg-purple-800 disabled:text-purple-300 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      {runningEval ? "Evaluating..." : `Evaluate ${pendingSelected.size} Selected`}
+                    </button>
+                    <button
+                      onClick={() => setPendingSelected(new Set())}
+                      className="text-xs text-gray-500 hover:text-gray-300"
+                    >
+                      Clear
+                    </button>
+                    <button
+                      onClick={() => {
+                        const allIds = new Set(pendingEvalCompanies.map((c) => c.id));
+                        setPendingSelected(allIds);
+                      }}
+                      className="text-xs text-gray-500 hover:text-gray-300"
+                    >
+                      Select All
+                    </button>
+                  </div>
+                )}
+                {evalLogs.length > 0 && (
+                  <div className="mx-4 mb-2 p-3 bg-gray-950 border border-gray-800 rounded-lg max-h-40 overflow-y-auto text-xs font-mono">
+                    {evalLogs.map((log, i) => (
+                      <div key={i} className={`${log.startsWith("✓") ? "text-emerald-400" : log.startsWith("✗") ? "text-red-400" : log.startsWith("⚠") ? "text-amber-400" : "text-gray-400"}`}>{log}</div>
+                    ))}
+                  </div>
+                )}
+                <div className="overflow-x-auto rounded-lg border border-gray-800/50 mt-1">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-800 bg-gray-900/30">
+                        <th className="py-2 px-4 w-8">
+                          <input
+                            type="checkbox"
+                            checked={pendingSelected.size === pendingEvalCompanies.length && pendingEvalCompanies.length > 0}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setPendingSelected(new Set(pendingEvalCompanies.map((c) => c.id)));
+                              } else {
+                                setPendingSelected(new Set());
+                              }
+                            }}
+                            className="accent-purple-500"
+                          />
+                        </th>
+                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs">#</th>
+                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs">Company</th>
+                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs">Founded</th>
+                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs">HQ City</th>
+                        <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs">PB Employees</th>
+                        <th className="text-center py-2 px-4 font-medium text-gray-500 text-xs">LinkedIn Scraped</th>
+                        <th className="text-center py-2 px-4 font-medium text-gray-500 text-xs">LLM Evaluated</th>
+                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs">Description</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingEvalCompanies.map((company, index) => {
+                        const s = company.snapshot;
+                        const isChecked = pendingSelected.has(company.id);
+                        return (
+                          <tr key={company.id} className={`border-b border-gray-800/50 hover:opacity-80 ${isChecked ? "opacity-70 bg-purple-900/10" : "opacity-40"}`}>
+                            <td className="py-2 px-4">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  const next = new Set(pendingSelected);
+                                  if (isChecked) next.delete(company.id);
+                                  else next.add(company.id);
+                                  setPendingSelected(next);
+                                }}
+                                className="accent-purple-500"
+                              />
+                            </td>
+                            <td className="py-2 px-4 text-gray-600 tabular-nums">{index + 1}</td>
+                            <td className="py-2 px-4">
+                              <span className="text-gray-300 font-medium">{s?.name || "—"}</span>
+                            </td>
+                            <td className="py-2 px-4 text-gray-400">{s?.founded_year || "—"}</td>
+                            <td className="py-2 px-4 text-gray-400">{s?.pb_hq_city || s?.location || "—"}</td>
+                            <td className="py-2 px-4 text-right text-gray-500 tabular-nums">{(s as Record<string, unknown>)?.pb_employees != null ? String((s as Record<string, unknown>).pb_employees) : "—"}</td>
+                            <td className="py-2 px-4 text-center">
+                              {s?.passed_headcount_filter !== null
+                                ? <span className="text-emerald-400 text-xs">✓</span>
+                                : <span className="text-yellow-500 text-xs">Pending</span>
+                              }
+                            </td>
+                            <td className="py-2 px-4 text-center">
+                              {s?.passed_llm_filter !== null
+                                ? <span className="text-emerald-400 text-xs">✓</span>
+                                : <span className="text-yellow-500 text-xs">Pending</span>
+                              }
+                            </td>
+                            <td className="py-2 px-4 text-gray-500 max-w-xs">
+                              <p className="line-clamp-1 text-xs">{s?.pb_description || s?.what_they_do || "—"}</p>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
                 </div>
               )}
             </div>
