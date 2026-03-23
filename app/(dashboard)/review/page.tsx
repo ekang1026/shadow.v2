@@ -208,6 +208,7 @@ export default function ReviewPage() {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [showFailed, setShowFailed] = useState(false);
   const [failedSort, setFailedSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "name", dir: "asc" });
+  const [passedSort, setPassedSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "name", dir: "asc" });
   const [overrides, setOverrides] = useState<Set<string>>(new Set());
   const [lastIngest, setLastIngest] = useState<{ last_run_at: string | null; stats: { new: number; updated: number; skipped: number; errors: number } | null; file_name?: string } | null>(null);
   const [ingesting, setIngesting] = useState(false);
@@ -304,7 +305,7 @@ export default function ReviewPage() {
     return !(s.passed_headcount_filter === true && s.passed_llm_filter === true);
   });
 
-  // Sort failed companies
+  // Sort helper
   const getSortValue = (c: ReviewCompany, key: string): string | number => {
     const s = c.snapshot;
     if (!s) return "";
@@ -313,7 +314,10 @@ export default function ReviewPage() {
       case "hq": return s.pb_hq_city || s.location || "";
       case "hc": return s.headcount ?? 0;
       case "founded": return s.founded_year ?? 0;
+      case "growth": return s.headcount_growth_1yr ?? 0;
       case "raised": return s.total_capital_raised ?? 0;
+      case "lastval": return s.last_round_valuation ?? 0;
+      case "ingest_count": return c.review_count ?? 0;
       case "reason": {
         if (s.passed_headcount_filter === false) return `HC: ${s.headcount ?? 0}`;
         if (s.passed_llm_filter === false) return "LLM";
@@ -323,14 +327,27 @@ export default function ReviewPage() {
     }
   };
 
-  const failedCompanies = [...failedCompaniesRaw].sort((a, b) => {
-    const aVal = getSortValue(a, failedSort.key);
-    const bVal = getSortValue(b, failedSort.key);
-    const cmp = typeof aVal === "number" && typeof bVal === "number"
-      ? aVal - bVal
-      : String(aVal).localeCompare(String(bVal));
-    return failedSort.dir === "asc" ? cmp : -cmp;
-  });
+  const sortCompanies = (list: ReviewCompany[], sort: { key: string; dir: "asc" | "desc" }) => {
+    return [...list].sort((a, b) => {
+      const aVal = getSortValue(a, sort.key);
+      const bVal = getSortValue(b, sort.key);
+      const cmp = typeof aVal === "number" && typeof bVal === "number"
+        ? aVal - bVal
+        : String(aVal).localeCompare(String(bVal));
+      return sort.dir === "asc" ? cmp : -cmp;
+    });
+  };
+
+  const sortedPassedCompanies = sortCompanies(passedCompanies, passedSort);
+  const failedCompanies = sortCompanies(failedCompaniesRaw, failedSort);
+
+  const handlePassedSort = (key: string) => {
+    setPassedSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" }
+    );
+  };
 
   const handleFailedSort = (key: string) => {
     setFailedSort((prev) =>
@@ -528,21 +545,37 @@ export default function ReviewPage() {
               <thead>
                 <tr className="border-b border-gray-800 bg-gray-900/50">
                   <th className="text-left py-3 px-4 font-medium text-gray-400">#</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-400">Company</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-400">Founded</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-400">HQ City</th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-400">HC</th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-400">1yr Growth</th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-400">Raised</th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-400">Last Val.</th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("name")}>
+                    Company {passedSort.key === "name" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
+                  </th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("founded")}>
+                    Founded {passedSort.key === "founded" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
+                  </th>
+                  <th className="text-left py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("hq")}>
+                    HQ City {passedSort.key === "hq" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
+                  </th>
+                  <th className="text-right py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("hc")}>
+                    HC {passedSort.key === "hc" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
+                  </th>
+                  <th className="text-right py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("growth")}>
+                    1yr Growth {passedSort.key === "growth" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
+                  </th>
+                  <th className="text-right py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("raised")}>
+                    Raised {passedSort.key === "raised" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
+                  </th>
+                  <th className="text-right py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("lastval")}>
+                    Last Val. {passedSort.key === "lastval" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
+                  </th>
                   <th className="text-left py-3 px-4 font-medium text-gray-400 max-w-xs">What They Do</th>
                   <th className="text-center py-3 px-4 font-medium text-gray-400">Market</th>
                   <th className="text-center py-3 px-4 font-medium text-gray-400">Agentic</th>
-                  <th className="text-center py-3 px-4 font-medium text-gray-400">Classification</th>
+                  <th className="text-center py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("ingest_count")}>
+                    Classification {passedSort.key === "ingest_count" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {passedCompanies.map((company, index) => (
+                {sortedPassedCompanies.map((company, index) => (
                   <CompanyRow
                     key={company.id}
                     company={company}

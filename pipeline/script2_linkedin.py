@@ -162,14 +162,12 @@ def run(limit: Optional[int] = None) -> dict:
                     data = scrape_linkedin_company(page, scraper, browser_mgr, linkedin_url)
 
                     if not data or data.get("headcount") is None:
-                        # Scraper error or no headcount found — still pass through to review
-                        # so humans can see it with "N/A" headcount instead of losing the company
-                        log.warning(f"  ⚠ {company_name} — no headcount data (scraper error or missing)")
+                        log.info(f"  ✗ FILTER: {company_name} — no headcount data (N/A)")
                         update_snapshot(snapshot["id"], {
-                            "passed_headcount_filter": True,  # Pass through — don't deny on technical error
+                            "passed_headcount_filter": False,  # Filter out — N/A companies are too small or obsolete
                             "headcount_error": True,
                         })
-                        stats["errors"] += 1
+                        stats["filtered_out"] += 1
                         # Random delay between scrapes
                         delay = random.uniform(MIN_DELAY, MAX_DELAY)
                         time.sleep(delay)
@@ -199,9 +197,8 @@ def run(limit: Optional[int] = None) -> dict:
 
                 except Exception as e:
                     log.error(f"Error scraping {company_name}: {e}")
-                    # Still pass through to review — don't lose the company
                     update_snapshot(snapshot["id"], {
-                        "passed_headcount_filter": True,
+                        "passed_headcount_filter": False,
                         "headcount_error": True,
                     })
                     stats["errors"] += 1

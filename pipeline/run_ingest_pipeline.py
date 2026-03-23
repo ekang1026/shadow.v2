@@ -208,21 +208,12 @@ def run(file_path: str = None) -> dict:
                             data = scrape_linkedin_company(page, scraper, browser_mgr, linkedin_url)
 
                             if not data or data.get("headcount") is None:
-                                log.warning(f"  ⚠ {company_name} — no headcount data")
+                                log.info(f"  ✗ FILTER: {company_name} — no headcount data (N/A)")
                                 update_snapshot(snapshot["id"], {
-                                    "passed_headcount_filter": True,
+                                    "passed_headcount_filter": False,
                                     "headcount_error": True,
                                 })
-                                linkedin_stats["errors"] += 1
-                                # Still queue for LLM — headcount error companies get reviewed
-                                website_url = snapshot.get("website", "")
-                                if website_url:
-                                    future = llm_pool.submit(
-                                        process_company_llm,
-                                        snapshot["id"], company_name, website_url
-                                    )
-                                    llm_futures.append((future, company_name))
-                                    llm_stats["queued"] += 1
+                                linkedin_stats["filtered_out"] += 1
                             else:
                                 headcount = data["headcount"]
                                 passed = HEADCOUNT_MIN <= headcount <= HEADCOUNT_MAX
