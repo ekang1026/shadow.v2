@@ -213,6 +213,10 @@ def ingest_rows(rows: list[dict]) -> dict:
             snapshot_data["company_id"] = company["id"]
             snapshot_data["is_latest"] = True
             snapshot_data["snapshot_date"] = datetime.now().date().isoformat()
+            # Explicitly set filters to None — not yet evaluated
+            # (DB defaults to false, but we want null = "pending evaluation")
+            snapshot_data["passed_headcount_filter"] = None
+            snapshot_data["passed_llm_filter"] = None
             snapshot_batch.append(snapshot_data)
             stats["new"] += 1
             processed += 1
