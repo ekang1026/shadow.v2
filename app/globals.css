@@ -1,1 +1,7 @@
 @import "tailwindcss";
+
+/* Suppress default browser drag ghost and set grabbing cursor during column reorder */
+body.dragging-column,
+body.dragging-column * {
+  cursor: grabbing !important;
+}

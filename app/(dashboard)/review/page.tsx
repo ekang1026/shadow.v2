@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 
 type Classification = "HVT" | "PM" | "PS" | "PT" | "PL";
 
@@ -62,27 +62,235 @@ function formatMoney(amount: number | null | undefined): string {
   return `$${amount}`;
 }
 
-function CompanyRow({
-  company,
-  index,
-  selected,
-  onSelect,
-  submitting,
-  expandedRow,
-  onToggleExpand,
-  dimmed,
-  overrideSlot,
-}: {
-  company: ReviewCompany;
-  index: number;
-  selected: Record<string, Classification>;
-  onSelect: (id: string, c: Classification) => void;
-  submitting: boolean;
-  expandedRow: string | null;
-  onToggleExpand: (id: string) => void;
-  dimmed?: boolean;
-  overrideSlot?: React.ReactNode;
-}) {
+// ── Column configuration ──────────────────────────────────────────────
+interface ColumnDef {
+  id: string;
+  label: string;
+  defaultWidth: number;
+  minWidth: number;
+  align?: "left" | "right" | "center";
+  sortKey?: string; // if sortable, the key to use
+}
+
+const PASSED_COLUMNS: ColumnDef[] = [
+  { id: "index", label: "#", defaultWidth: 48, minWidth: 36, align: "left" },
+  { id: "name", label: "Company", defaultWidth: 200, minWidth: 120, align: "left", sortKey: "name" },
+  { id: "founded", label: "Founded", defaultWidth: 90, minWidth: 60, align: "left", sortKey: "founded" },
+  { id: "hqCity", label: "HQ City", defaultWidth: 120, minWidth: 70, align: "left", sortKey: "hq" },
+  { id: "hc", label: "HC", defaultWidth: 70, minWidth: 50, align: "right", sortKey: "hc" },
+  { id: "growth", label: "1yr Growth", defaultWidth: 100, minWidth: 70, align: "right", sortKey: "growth" },
+  { id: "raised", label: "Raised", defaultWidth: 100, minWidth: 70, align: "right", sortKey: "raised" },
+  { id: "lastVal", label: "Last Val.", defaultWidth: 100, minWidth: 70, align: "right", sortKey: "lastval" },
+  { id: "whatTheyDo", label: "What They Do", defaultWidth: 260, minWidth: 120, align: "left" },
+  { id: "market", label: "Market", defaultWidth: 80, minWidth: 50, align: "center" },
+  { id: "agentic", label: "Agentic", defaultWidth: 80, minWidth: 50, align: "center" },
+];
+
+const FAILED_COLUMNS: ColumnDef[] = [
+  { id: "index", label: "#", defaultWidth: 48, minWidth: 36, align: "left" },
+  { id: "name", label: "Company", defaultWidth: 200, minWidth: 120, align: "left", sortKey: "name" },
+  { id: "founded", label: "Founded", defaultWidth: 90, minWidth: 60, align: "left", sortKey: "founded" },
+  { id: "hqCity", label: "HQ City", defaultWidth: 120, minWidth: 70, align: "left", sortKey: "hq" },
+  { id: "hc", label: "HC", defaultWidth: 70, minWidth: 50, align: "right", sortKey: "hc" },
+  { id: "growth", label: "1yr Growth", defaultWidth: 100, minWidth: 70, align: "right", sortKey: "growth" },
+  { id: "raised", label: "Raised", defaultWidth: 100, minWidth: 70, align: "right", sortKey: "raised" },
+  { id: "lastVal", label: "Last Val.", defaultWidth: 100, minWidth: 70, align: "right", sortKey: "lastval" },
+  { id: "whatTheyDo", label: "What They Do", defaultWidth: 220, minWidth: 120, align: "left" },
+  { id: "reason", label: "Reason", defaultWidth: 140, minWidth: 80, align: "center", sortKey: "reason" },
+  { id: "override", label: "Override", defaultWidth: 90, minWidth: 70, align: "center" },
+];
+
+// Classification column is always last — not part of the reorderable set
+const CLASSIFICATION_COL: ColumnDef = {
+  id: "classification",
+  label: "Classification",
+  defaultWidth: 180,
+  minWidth: 120,
+  align: "center",
+  sortKey: "ingest_count",
+};
+
+const LS_KEY_PREFIX = "review_cols_";
+
+function loadColumnState(
+  key: string,
+  columns: ColumnDef[],
+): { widths: Record<string, number>; order: string[] } {
+  const defaults = {
+    widths: Object.fromEntries(columns.map((c) => [c.id, c.defaultWidth])),
+    order: columns.map((c) => c.id),
+  };
+  if (typeof window === "undefined") return defaults;
+  try {
+    const raw = localStorage.getItem(LS_KEY_PREFIX + key);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw);
+    // Validate: ensure all column ids are present
+    const savedIds = new Set<string>(parsed.order ?? []);
+    const defIds = new Set(columns.map((c) => c.id));
+    // If column set changed, reset
+    if (savedIds.size !== defIds.size || [...defIds].some((id) => !savedIds.has(id))) {
+      return defaults;
+    }
+    return {
+      widths: { ...defaults.widths, ...parsed.widths },
+      order: parsed.order,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function saveColumnState(
+  key: string,
+  widths: Record<string, number>,
+  order: string[],
+) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(LS_KEY_PREFIX + key, JSON.stringify({ widths, order }));
+  } catch { /* quota or SSR */ }
+}
+
+// ── useColumnControls hook ────────────────────────────────────────────
+function useColumnControls(storageKey: string, columns: ColumnDef[]) {
+  const [state, setState] = useState(() => loadColumnState(storageKey, columns));
+  const { widths, order } = state;
+
+  const setWidths = useCallback((next: Record<string, number>) => {
+    setState((prev) => {
+      const updated = { ...prev, widths: next };
+      saveColumnState(storageKey, next, prev.order);
+      return updated;
+    });
+  }, [storageKey]);
+
+  const setOrder = useCallback((next: string[]) => {
+    setState((prev) => {
+      const updated = { ...prev, order: next };
+      saveColumnState(storageKey, prev.widths, next);
+      return updated;
+    });
+  }, [storageKey]);
+
+  // Resize via mouse drag
+  const startResize = useCallback(
+    (colId: string, startX: number) => {
+      const col = columns.find((c) => c.id === colId);
+      if (!col) return;
+      const startWidth = widths[colId] ?? col.defaultWidth;
+      const onMove = (e: MouseEvent) => {
+        const delta = e.clientX - startX;
+        const newW = Math.max(col.minWidth, startWidth + delta);
+        setWidths({ ...widths, [colId]: newW });
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+      };
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [columns, widths, setWidths],
+  );
+
+  // Column reorder via pure mouse events (no HTML5 drag API)
+  const dragRef = useRef<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const headerRefs = useRef<Map<string, HTMLElement>>(new Map());
+
+  const registerHeaderRef = useCallback((colId: string, el: HTMLElement | null) => {
+    if (el) headerRefs.current.set(colId, el);
+    else headerRefs.current.delete(colId);
+  }, []);
+
+  const startReorder = useCallback(
+    (colId: string, startX: number) => {
+      dragRef.current = colId;
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "grabbing";
+
+      const onMove = (e: MouseEvent) => {
+        // Find which header the mouse is over
+        let hoveredCol: string | null = null;
+        headerRefs.current.forEach((el, id) => {
+          const rect = el.getBoundingClientRect();
+          if (e.clientX >= rect.left && e.clientX <= rect.right) {
+            hoveredCol = id;
+          }
+        });
+        setDragOverId(hoveredCol && hoveredCol !== colId ? hoveredCol : null);
+      };
+
+      const onUp = (e: MouseEvent) => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+
+        // Find drop target
+        let targetCol: string | null = null;
+        headerRefs.current.forEach((el, id) => {
+          const rect = el.getBoundingClientRect();
+          if (e.clientX >= rect.left && e.clientX <= rect.right) {
+            targetCol = id;
+          }
+        });
+
+        const srcId = dragRef.current;
+        if (srcId && targetCol && srcId !== targetCol) {
+          const newOrder = [...order];
+          const srcIdx = newOrder.indexOf(srcId);
+          const tgtIdx = newOrder.indexOf(targetCol);
+          if (srcIdx !== -1 && tgtIdx !== -1) {
+            newOrder.splice(srcIdx, 1);
+            newOrder.splice(tgtIdx, 0, srcId);
+            setOrder(newOrder);
+          }
+        }
+
+        dragRef.current = null;
+        setDragOverId(null);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [order, setOrder],
+  );
+
+  return { widths, order, startResize, startReorder, registerHeaderRef, dragRef, dragOverId };
+}
+
+// ── Cell renderer ─────────────────────────────────────────────────────
+function renderCell(
+  colId: string,
+  company: ReviewCompany,
+  index: number,
+  {
+    expandedRow,
+    onToggleExpand,
+    selected,
+    onSelect,
+    submitting,
+    dimmed,
+    overrideSlot,
+    handleMoveToReview,
+  }: {
+    expandedRow: string | null;
+    onToggleExpand: (id: string) => void;
+    selected: Record<string, Classification>;
+    onSelect: (id: string, c: Classification) => void;
+    submitting: boolean;
+    dimmed?: boolean;
+    overrideSlot?: React.ReactNode;
+    handleMoveToReview?: (id: string) => void;
+  },
+): React.ReactNode {
   const s = company.snapshot;
   const currentSelection = selected[company.id];
 
@@ -97,7 +305,6 @@ function CompanyRow({
     );
   };
 
-  // Determine fail reason for dimmed rows
   const getFailReason = (): string | null => {
     if (!s) return "No data";
     if (s.passed_headcount_filter === false) {
@@ -114,18 +321,18 @@ function CompanyRow({
       if (ot.length === 1 && ot[0] === "Services") reasons.push("Services-only");
       if (ot.length === 1 && ot[0] === "Marketplace") reasons.push("Pure marketplace");
       if (s.is_subsidiary) reasons.push("Subsidiary");
-      return reasons.length > 0 ? reasons.join(" · ") : "Failed LLM";
+      return reasons.length > 0 ? reasons.join(" \u00b7 ") : "Failed LLM";
     }
     return null;
   };
 
-  const failReason = dimmed ? getFailReason() : null;
+  switch (colId) {
+    case "index":
+      return <td key={colId} className="py-3 px-4 text-gray-600 tabular-nums">{index + 1}</td>;
 
-  return (
-    <React.Fragment>
-      <tr className={`border-b border-gray-800/50 transition-all duration-200 ${dimmed ? "opacity-50" : ""} ${currentSelection ? "bg-gray-900/40" : "hover:bg-gray-900/30"}`}>
-        <td className="py-3 px-4 text-gray-600 tabular-nums">{index + 1}</td>
-        <td className="py-3 px-4">
+    case "name":
+      return (
+        <td key={colId} className="py-3 px-4">
           <div className="flex items-center gap-2">
             {s?.website ? (
               <a href={s.website.startsWith("http") ? s.website : `https://${s.website}`} target="_blank" rel="noopener noreferrer" className="text-white font-medium hover:text-blue-400 transition-colors">{s?.name || "Unknown"}</a>
@@ -143,44 +350,92 @@ function CompanyRow({
             )}
           </div>
         </td>
-        <td className="py-3 px-4 text-gray-400">{s?.founded_year || "\u2014"}</td>
-        <td className="py-3 px-4 text-gray-400">{s?.pb_hq_city || s?.location || "\u2014"}</td>
-        <td className="py-3 px-4 text-right tabular-nums">
+      );
+
+    case "founded":
+      return <td key={colId} className="py-3 px-4 text-gray-400">{s?.founded_year || "\u2014"}</td>;
+
+    case "hqCity":
+      return <td key={colId} className="py-3 px-4 text-gray-400">{s?.pb_hq_city || s?.location || "\u2014"}</td>;
+
+    case "hc":
+      return (
+        <td key={colId} className="py-3 px-4 text-right tabular-nums">
           {s?.headcount_error ? (
-            <span className="text-amber-400 font-medium" title="LinkedIn scrape failed — headcount not available">N/A</span>
+            <span className="text-amber-400 font-medium" title="LinkedIn scrape failed \u2014 headcount not available">N/A</span>
           ) : s?.headcount ? (
             <span className="text-gray-300">{s.headcount}</span>
           ) : (
             <span className="text-gray-600">{"\u2014"}</span>
           )}
         </td>
-        <td className="py-3 px-4 text-right tabular-nums">{formatGrowth(s?.headcount_growth_1yr ?? null)}</td>
-        <td className="py-3 px-4 text-right text-gray-300 tabular-nums">{formatMoney(s?.total_capital_raised)}</td>
-        <td className="py-3 px-4 text-right text-gray-300 tabular-nums">{formatMoney(s?.last_round_valuation)}</td>
-        <td className="py-3 px-4 text-gray-400 max-w-xs cursor-pointer" onClick={() => onToggleExpand(company.id)} title="Click to expand survey details">
+      );
+
+    case "growth":
+      return <td key={colId} className="py-3 px-4 text-right tabular-nums">{formatGrowth(s?.headcount_growth_1yr ?? null)}</td>;
+
+    case "raised":
+      return <td key={colId} className="py-3 px-4 text-right text-gray-300 tabular-nums">{formatMoney(s?.total_capital_raised)}</td>;
+
+    case "lastVal":
+      return <td key={colId} className="py-3 px-4 text-right text-gray-300 tabular-nums">{formatMoney(s?.last_round_valuation)}</td>;
+
+    case "whatTheyDo":
+      return (
+        <td key={colId} className="py-3 px-4 text-gray-400 cursor-pointer overflow-hidden" onClick={() => onToggleExpand(company.id)} title="Click to expand survey details">
           <p className="line-clamp-2 text-xs leading-relaxed">{s?.what_they_do || s?.pb_description || "\u2014"}</p>
         </td>
-        <td className="py-3 px-4 text-center">
+      );
+
+    case "market":
+      return (
+        <td key={colId} className="py-3 px-4 text-center">
           {s?.market_focus ? (
             <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${s.market_focus === "Vertical" ? "bg-purple-900/50 text-purple-300" : s.market_focus === "Horizontal" ? "bg-cyan-900/50 text-cyan-300" : "bg-gray-800 text-gray-400"}`} title={s.vertical_type ? `${s.vertical_type}${s.naics_3digit_name ? ` \u2014 ${s.naics_3digit_name}` : ""}` : undefined}>
               {s.market_focus === "Vertical" ? "V" : s.market_focus === "Horizontal" ? "H" : "?"}
             </span>
           ) : <span className="text-gray-600">{"\u2014"}</span>}
         </td>
-        <td className="py-3 px-4 text-center">
+      );
+
+    case "agentic":
+      return (
+        <td key={colId} className="py-3 px-4 text-center">
           {s?.agentic_features_present === true ? (
             <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400" title={s.agentic_feature_types?.join(", ") || "Agentic features present"} />
           ) : <span className="text-gray-600 text-xs">{"\u2014"}</span>}
         </td>
-        {dimmed && (
-          <td className="py-3 px-4 text-center">
-            {failReason && (
-              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-red-900/50 text-red-400">{failReason}</span>
-            )}
-          </td>
-        )}
-        {overrideSlot}
-        <td className="py-3 px-4">
+      );
+
+    case "reason": {
+      const failReason = getFailReason();
+      return (
+        <td key={colId} className="py-3 px-4 text-center">
+          {failReason && (
+            <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-red-900/50 text-red-400">{failReason}</span>
+          )}
+        </td>
+      );
+    }
+
+    case "override":
+      return (
+        <td key={colId} className="py-3 px-4 text-center">
+          {handleMoveToReview && (
+            <button
+              onClick={() => handleMoveToReview(company.id)}
+              className="px-2 py-1 text-xs font-medium text-blue-400 hover:text-blue-300 border border-blue-800 hover:border-blue-600 rounded transition-colors"
+              title="Move this company to the review queue"
+            >
+              &rarr; Review
+            </button>
+          )}
+        </td>
+      );
+
+    case "classification":
+      return (
+        <td key={colId} className="py-3 px-4">
           <div className="flex items-center justify-center gap-1">
             {classificationOptions.map((opt) => (
               <button key={opt.value} onClick={() => onSelect(company.id, opt.value)} disabled={submitting} className={`px-2 py-1 rounded text-xs font-medium transition-all cursor-pointer ${currentSelection === opt.value ? `${opt.color} bg-gray-700 ring-1 ring-current` : "text-gray-500 hover:text-gray-300 hover:bg-gray-800"} ${submitting ? "cursor-not-allowed opacity-50" : ""}`} title={opt.label}>
@@ -189,10 +444,73 @@ function CompanyRow({
             ))}
           </div>
         </td>
+      );
+
+    default:
+      return <td key={colId} className="py-3 px-4" />;
+  }
+}
+
+// ── CompanyRow ─────────────────────────────────────────────────────────
+function CompanyRow({
+  company,
+  index,
+  selected,
+  onSelect,
+  submitting,
+  expandedRow,
+  onToggleExpand,
+  dimmed,
+  overrideSlot,
+  columnOrder,
+  handleMoveToReview,
+}: {
+  company: ReviewCompany;
+  index: number;
+  selected: Record<string, Classification>;
+  onSelect: (id: string, c: Classification) => void;
+  submitting: boolean;
+  expandedRow: string | null;
+  onToggleExpand: (id: string) => void;
+  dimmed?: boolean;
+  overrideSlot?: React.ReactNode;
+  columnOrder: string[];
+  handleMoveToReview?: (id: string) => void;
+}) {
+  const s = company.snapshot;
+  const currentSelection = selected[company.id];
+  const totalCols = columnOrder.length + 1; // +1 for classification
+
+  return (
+    <React.Fragment>
+      <tr className={`border-b border-gray-800/50 transition-all duration-200 ${dimmed ? "opacity-50" : ""} ${currentSelection ? "bg-gray-900/40" : "hover:bg-gray-900/30"}`}>
+        {columnOrder.map((colId) =>
+          renderCell(colId, company, index, {
+            expandedRow,
+            onToggleExpand,
+            selected,
+            onSelect,
+            submitting,
+            dimmed,
+            overrideSlot,
+            handleMoveToReview,
+          })
+        )}
+        {/* Classification is always last */}
+        {renderCell("classification", company, index, {
+          expandedRow,
+          onToggleExpand,
+          selected,
+          onSelect,
+          submitting,
+          dimmed,
+          overrideSlot,
+          handleMoveToReview,
+        })}
       </tr>
       {expandedRow === company.id && s && (
         <tr className="bg-gray-900/60">
-          <td colSpan={12} className="py-4 px-8">
+          <td colSpan={totalCols} className="py-4 px-8">
             <div className="grid grid-cols-4 gap-4 text-xs">
               <div><span className="text-gray-500 block mb-1">Offering</span><span className="text-gray-300">{s.offering_type?.join(", ") || "\u2014"}</span></div>
               <div><span className="text-gray-500 block mb-1">Customer Type</span><span className="text-gray-300">{s.customer_type?.join(", ") || "\u2014"}</span></div>
@@ -219,6 +537,116 @@ function CompanyRow({
   );
 }
 
+// ── Resizable / Reorderable table header ──────────────────────────────
+function TableHeader({
+  columns,
+  columnOrder,
+  widths,
+  sort,
+  onSort,
+  startResize,
+  startReorder,
+  registerHeaderRef,
+  dragRef,
+  dragOverId,
+  classLabel,
+  thClass,
+}: {
+  columns: ColumnDef[];
+  columnOrder: string[];
+  widths: Record<string, number>;
+  sort: { key: string; dir: "asc" | "desc" };
+  onSort: (key: string) => void;
+  startResize: (colId: string, startX: number) => void;
+  startReorder: (colId: string, startX: number) => void;
+  registerHeaderRef: (colId: string, el: HTMLElement | null) => void;
+  dragRef: React.RefObject<string | null>;
+  dragOverId: string | null;
+  classLabel?: string;
+  thClass: string;
+}) {
+  const colMap = Object.fromEntries(columns.map((c) => [c.id, c]));
+
+  return (
+    <>
+      <colgroup>
+        {columnOrder.map((id) => (
+          <col key={id} style={{ width: widths[id] ?? colMap[id]?.defaultWidth ?? 100 }} />
+        ))}
+        {/* classification col */}
+        <col style={{ width: widths["classification"] ?? CLASSIFICATION_COL.defaultWidth }} />
+      </colgroup>
+      <thead>
+        <tr className="border-b border-gray-800 bg-gray-900/50">
+          {columnOrder.map((id) => {
+            const col = colMap[id];
+            if (!col) return null;
+            const isSortable = !!col.sortKey;
+            const isSorted = col.sortKey === sort.key;
+            const isBeingDragged = dragRef.current === id;
+            const isDropTarget = dragOverId === id && dragRef.current !== null && dragRef.current !== id;
+            return (
+              <th
+                key={id}
+                ref={(el) => registerHeaderRef(id, el)}
+                className={`${thClass} relative group transition-all duration-150 ${col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "text-left"} ${isSortable ? "hover:text-gray-200 select-none" : ""} ${isBeingDragged ? "opacity-40 bg-gray-800" : ""} ${isDropTarget ? "bg-blue-900/30" : ""}`}
+                style={{ position: "relative", cursor: isBeingDragged ? "grabbing" : "grab", borderLeft: isDropTarget ? "2px solid #60a5fa" : undefined }}
+                onMouseDown={(e) => {
+                  // Only start reorder on left click, not on resize handle
+                  if ((e.target as HTMLElement).dataset.resizeHandle) return;
+                  if (e.button !== 0) return;
+                  // Distinguish click (sort) from drag (reorder) via movement threshold
+                  const startX = e.clientX;
+                  const startY = e.clientY;
+                  let moved = false;
+                  const onMove = (me: MouseEvent) => {
+                    if (Math.abs(me.clientX - startX) > 5 || Math.abs(me.clientY - startY) > 5) {
+                      moved = true;
+                      document.removeEventListener("mousemove", onMove);
+                      document.removeEventListener("mouseup", onClickUp);
+                      startReorder(id, startX);
+                    }
+                  };
+                  const onClickUp = () => {
+                    document.removeEventListener("mousemove", onMove);
+                    document.removeEventListener("mouseup", onClickUp);
+                    if (!moved && isSortable && col.sortKey) {
+                      onSort(col.sortKey);
+                    }
+                  };
+                  document.addEventListener("mousemove", onMove);
+                  document.addEventListener("mouseup", onClickUp);
+                }}
+              >
+                {col.label}{" "}
+                {isSorted ? (sort.dir === "asc" ? "\u25b2" : "\u25bc") : ""}
+                {/* Resize handle */}
+                <div
+                  data-resize-handle="true"
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    startResize(id, e.clientX);
+                  }}
+                  className="absolute top-0 right-0 w-[5px] h-full cursor-col-resize opacity-0 group-hover:opacity-100 hover:bg-blue-500/50 transition-opacity"
+                />
+              </th>
+            );
+          })}
+          {/* Classification header — not draggable/reorderable */}
+          <th className={`${thClass} text-center ${CLASSIFICATION_COL.sortKey ? "cursor-pointer hover:text-gray-200 select-none" : ""}`}
+            onClick={CLASSIFICATION_COL.sortKey ? () => onSort(CLASSIFICATION_COL.sortKey!) : undefined}
+          >
+            {classLabel ?? CLASSIFICATION_COL.label}{" "}
+            {CLASSIFICATION_COL.sortKey === sort.key ? (sort.dir === "asc" ? "\u25b2" : "\u25bc") : ""}
+          </th>
+        </tr>
+      </thead>
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 export default function ReviewPage() {
   const [companies, setCompanies] = useState<ReviewCompany[]>([]);
   const [loading, setLoading] = useState(true);
@@ -245,8 +673,12 @@ export default function ReviewPage() {
   const [ingestStatus, setIngestStatus] = useState<string | null>(null);
   const [ingestLogs, setIngestLogs] = useState<string[]>([]);
   const [ingestSummary, setIngestSummary] = useState<{ new: number; updated: number; skipped: number; errors: number; hc_passed?: number; llm_passed?: number; llm_failed?: number; duration_seconds: number; file_name: string } | null>(null);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const logPanelRef = React.useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const logPanelRef = useRef<HTMLDivElement>(null);
+
+  // Column controls for both tables
+  const passedCols = useColumnControls("passed", PASSED_COLUMNS);
+  const failedCols = useColumnControls("failed", FAILED_COLUMNS);
 
   // Fetch last ingest metadata
   const fetchIngestMeta = useCallback(async () => {
@@ -261,7 +693,7 @@ export default function ReviewPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setIngesting(true);
-    setIngestStatus(`Running full pipeline on ${file.name}... (ingest → LinkedIn HC → LLM survey)`);
+    setIngestStatus(`Running full pipeline on ${file.name}... (ingest \u2192 LinkedIn HC \u2192 LLM survey)`);
     setIngestLogs([]);
     setIngestSummary(null);
     try {
@@ -285,7 +717,7 @@ export default function ReviewPage() {
           file_name: data.file_name,
         });
         const s = data.stats;
-        setIngestStatus(`Pipeline complete: ${s.new} ingested, ${s.hc_passed || 0} passed HC, ${s.llm_passed || 0} passed LLM → ready for review`);
+        setIngestStatus(`Pipeline complete: ${s.new} ingested, ${s.hc_passed || 0} passed HC, ${s.llm_passed || 0} passed LLM \u2192 ready for review`);
         fetchCompanies();
         fetchIngestMeta();
       } else {
@@ -540,7 +972,7 @@ export default function ReviewPage() {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-500">
-            {passedCompanies.length} passed{failedCompaniesRaw.length > 0 ? ` · ${failedCompaniesRaw.length} filtered out` : ""}{pendingEvalCount > 0 ? ` · ${pendingEvalCount} pending` : ""}
+            {passedCompanies.length} passed{failedCompaniesRaw.length > 0 ? ` \u00b7 ${failedCompaniesRaw.length} filtered out` : ""}{pendingEvalCount > 0 ? ` \u00b7 ${pendingEvalCount} pending` : ""}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -653,14 +1085,14 @@ export default function ReviewPage() {
             <div className="bg-gray-900/50 px-4 py-3 border-t border-gray-800">
               <div className="grid grid-cols-7 gap-3 text-center">
                 <div><div className="text-lg font-bold text-white">{ingestSummary.new}</div><div className="text-xs text-gray-500">Ingested</div></div>
-                <div className="flex items-center justify-center text-gray-600">→</div>
-                <div><div className="text-lg font-bold text-blue-400">{ingestSummary.hc_passed ?? "—"}</div><div className="text-xs text-gray-500">Passed HC</div></div>
-                <div className="flex items-center justify-center text-gray-600">→</div>
-                <div><div className="text-lg font-bold text-emerald-400">{ingestSummary.llm_passed ?? "—"}</div><div className="text-xs text-gray-500">Passed LLM</div></div>
-                <div><div className="text-lg font-bold text-red-400">{ingestSummary.llm_failed ?? "—"}</div><div className="text-xs text-gray-500">Failed LLM</div></div>
+                <div className="flex items-center justify-center text-gray-600">&rarr;</div>
+                <div><div className="text-lg font-bold text-blue-400">{ingestSummary.hc_passed ?? "\u2014"}</div><div className="text-xs text-gray-500">Passed HC</div></div>
+                <div className="flex items-center justify-center text-gray-600">&rarr;</div>
+                <div><div className="text-lg font-bold text-emerald-400">{ingestSummary.llm_passed ?? "\u2014"}</div><div className="text-xs text-gray-500">Passed LLM</div></div>
+                <div><div className="text-lg font-bold text-red-400">{ingestSummary.llm_failed ?? "\u2014"}</div><div className="text-xs text-gray-500">Failed LLM</div></div>
                 <div><div className="text-lg font-bold text-gray-500">{ingestSummary.errors}</div><div className="text-xs text-gray-500">Errors</div></div>
               </div>
-              <div className="text-xs text-gray-600 text-center mt-2">Ingested → HC Filter (8-30) → LLM Survey → Ready for Review</div>
+              <div className="text-xs text-gray-600 text-center mt-2">Ingested &rarr; HC Filter (8-30) &rarr; LLM Survey &rarr; Ready for Review</div>
             </div>
           )}
         </div>
@@ -669,10 +1101,10 @@ export default function ReviewPage() {
       <div className="flex items-center gap-4 mb-4 text-xs text-gray-500">
         <span className="font-medium text-gray-400">Classifications:</span>
         <span><span className="text-emerald-400 font-medium">HVT</span> High Value Target</span>
-        <span><span className="text-red-400 font-medium">PM</span> Pass — Market</span>
-        <span><span className="text-orange-400 font-medium">PL</span> Pass — Location</span>
-        <span><span className="text-yellow-400 font-medium">PS</span> Pass — Stage <span className="text-gray-600 ml-1">(3mo requeue)</span></span>
-        <span><span className="text-blue-400 font-medium">PT</span> Pass — Traction <span className="text-gray-600 ml-1">(3mo requeue)</span></span>
+        <span><span className="text-red-400 font-medium">PM</span> Pass &mdash; Market</span>
+        <span><span className="text-orange-400 font-medium">PL</span> Pass &mdash; Location</span>
+        <span><span className="text-yellow-400 font-medium">PS</span> Pass &mdash; Stage <span className="text-gray-600 ml-1">(3mo requeue)</span></span>
+        <span><span className="text-blue-400 font-medium">PT</span> Pass &mdash; Traction <span className="text-gray-600 ml-1">(3mo requeue)</span></span>
       </div>
 
       {loading ? (
@@ -698,54 +1130,36 @@ export default function ReviewPage() {
             </button>
             {showPassed && (
               <div className="overflow-x-auto rounded-lg border border-gray-800 mt-1">
-                <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-800 bg-gray-900/50">
-                  <th className="text-left py-3 px-4 font-medium text-gray-400">#</th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("name")}>
-                    Company {passedSort.key === "name" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("founded")}>
-                    Founded {passedSort.key === "founded" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("hq")}>
-                    HQ City {passedSort.key === "hq" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
-                  </th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("hc")}>
-                    HC {passedSort.key === "hc" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
-                  </th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("growth")}>
-                    1yr Growth {passedSort.key === "growth" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
-                  </th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("raised")}>
-                    Raised {passedSort.key === "raised" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
-                  </th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("lastval")}>
-                    Last Val. {passedSort.key === "lastval" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-400 max-w-xs">What They Do</th>
-                  <th className="text-center py-3 px-4 font-medium text-gray-400">Market</th>
-                  <th className="text-center py-3 px-4 font-medium text-gray-400">Agentic</th>
-                  <th className="text-center py-3 px-4 font-medium text-gray-400 cursor-pointer hover:text-gray-200 select-none" onClick={() => handlePassedSort("ingest_count")}>
-                    Classification {passedSort.key === "ingest_count" ? (passedSort.dir === "asc" ? "▲" : "▼") : ""}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedPassedCompanies.map((company, index) => (
-                  <CompanyRow
-                    key={company.id}
-                    company={company}
-                    index={index}
-                    selected={selected}
-                    onSelect={handleSelect}
-                    submitting={submitting}
-                    expandedRow={expandedRow}
-                    onToggleExpand={handleToggleExpand}
+                <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+                  <TableHeader
+                    columns={PASSED_COLUMNS}
+                    columnOrder={passedCols.order}
+                    widths={passedCols.widths}
+                    sort={passedSort}
+                    onSort={handlePassedSort}
+                    startResize={passedCols.startResize}
+                    startReorder={passedCols.startReorder}
+                    registerHeaderRef={passedCols.registerHeaderRef}
+                    dragRef={passedCols.dragRef}
+                    dragOverId={passedCols.dragOverId}
+                    thClass="py-3 px-4 font-medium text-gray-400"
                   />
-                ))}
-              </tbody>
-              </table>
+                  <tbody>
+                    {sortedPassedCompanies.map((company, index) => (
+                      <CompanyRow
+                        key={company.id}
+                        company={company}
+                        index={index}
+                        selected={selected}
+                        onSelect={handleSelect}
+                        submitting={submitting}
+                        expandedRow={expandedRow}
+                        onToggleExpand={handleToggleExpand}
+                        columnOrder={passedCols.order}
+                      />
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -781,64 +1195,35 @@ export default function ReviewPage() {
                   ))}
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-gray-800/50 mt-1">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-800 bg-gray-900/30">
-                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs">#</th>
-                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("name")}>
-                          Company {failedSort.key === "name" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
-                        </th>
-                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("founded")}>
-                          Founded {failedSort.key === "founded" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
-                        </th>
-                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("hq")}>
-                          HQ City {failedSort.key === "hq" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
-                        </th>
-                        <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("hc")}>
-                          HC {failedSort.key === "hc" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
-                        </th>
-                        <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("growth")}>
-                          1yr Growth {failedSort.key === "growth" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
-                        </th>
-                        <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("raised")}>
-                          Raised {failedSort.key === "raised" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
-                        </th>
-                        <th className="text-right py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("lastval")}>
-                          Last Val. {failedSort.key === "lastval" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
-                        </th>
-                        <th className="text-left py-2 px-4 font-medium text-gray-500 text-xs">What They Do</th>
-                        <th className="text-center py-2 px-4 font-medium text-gray-500 text-xs cursor-pointer hover:text-gray-300" onClick={() => handleFailedSort("reason")}>
-                          Reason {failedSort.key === "reason" ? (failedSort.dir === "asc" ? "▲" : "▼") : ""}
-                        </th>
-                        <th className="text-center py-2 px-4 font-medium text-gray-500 text-xs">Override</th>
-                        <th className="text-center py-2 px-4 font-medium text-gray-500 text-xs">Classification</th>
-                      </tr>
-                    </thead>
+                  <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+                    <TableHeader
+                      columns={FAILED_COLUMNS}
+                      columnOrder={failedCols.order}
+                      widths={failedCols.widths}
+                      sort={failedSort}
+                      onSort={handleFailedSort}
+                      startResize={failedCols.startResize}
+                      startReorder={failedCols.startReorder}
+                      registerHeaderRef={failedCols.registerHeaderRef}
+                      dragRef={failedCols.dragRef}
+                      dragOverId={failedCols.dragOverId}
+                      thClass="py-2 px-4 font-medium text-gray-500 text-xs"
+                    />
                     <tbody>
                       {failedCompanies.map((company, index) => (
-                        <React.Fragment key={company.id}>
-                          <CompanyRow
-                            company={company}
-                            index={passedCompanies.length + index}
-                            selected={selected}
-                            onSelect={handleSelect}
-                            submitting={submitting}
-                            expandedRow={expandedRow}
-                            onToggleExpand={handleToggleExpand}
-                            dimmed
-                            overrideSlot={
-                              <td className="py-3 px-4 text-center">
-                                <button
-                                  onClick={() => handleMoveToReview(company.id)}
-                                  className="px-2 py-1 text-xs font-medium text-blue-400 hover:text-blue-300 border border-blue-800 hover:border-blue-600 rounded transition-colors"
-                                  title="Move this company to the review queue"
-                                >
-                                  → Review
-                                </button>
-                              </td>
-                            }
-                          />
-                        </React.Fragment>
+                        <CompanyRow
+                          key={company.id}
+                          company={company}
+                          index={passedCompanies.length + index}
+                          selected={selected}
+                          onSelect={handleSelect}
+                          submitting={submitting}
+                          expandedRow={expandedRow}
+                          onToggleExpand={handleToggleExpand}
+                          dimmed
+                          columnOrder={failedCols.order}
+                          handleMoveToReview={handleMoveToReview}
+                        />
                       ))}
                     </tbody>
                   </table>
@@ -889,13 +1274,13 @@ export default function ReviewPage() {
                                   if (data.type === "processing") {
                                     setEvalLogs((prev) => [...prev, `Evaluating: ${data.name}...`]);
                                   } else if (data.type === "passed") {
-                                    setEvalLogs((prev) => [...prev, `✓ ${data.name} — PASSED (${data.market} / ${data.vertical})`]);
+                                    setEvalLogs((prev) => [...prev, `\u2713 ${data.name} \u2014 PASSED (${data.market} / ${data.vertical})`]);
                                   } else if (data.type === "failed") {
-                                    setEvalLogs((prev) => [...prev, `✗ ${data.name} — FAILED (${data.reasons?.join(", ")})`]);
+                                    setEvalLogs((prev) => [...prev, `\u2717 ${data.name} \u2014 FAILED (${data.reasons?.join(", ")})`]);
                                   } else if (data.type === "skip") {
-                                    setEvalLogs((prev) => [...prev, `⚠ ${data.name} — Skipped: ${data.reason}`]);
+                                    setEvalLogs((prev) => [...prev, `\u26a0 ${data.name} \u2014 Skipped: ${data.reason}`]);
                                   } else if (data.type === "error") {
-                                    setEvalLogs((prev) => [...prev, `⚠ Error: ${data.reason}`]);
+                                    setEvalLogs((prev) => [...prev, `\u26a0 Error: ${data.reason}`]);
                                   } else if (data.type === "complete") {
                                     setEvalLogs((prev) => [...prev, `\nDone: ${data.passed} passed, ${data.failed} failed, ${data.errors} errors`]);
                                   }
@@ -937,7 +1322,7 @@ export default function ReviewPage() {
                 {evalLogs.length > 0 && (
                   <div className="mx-4 mb-2 p-3 bg-gray-950 border border-gray-800 rounded-lg max-h-40 overflow-y-auto text-xs font-mono">
                     {evalLogs.map((log, i) => (
-                      <div key={i} className={`${log.startsWith("✓") ? "text-emerald-400" : log.startsWith("✗") ? "text-red-400" : log.startsWith("⚠") ? "text-amber-400" : "text-gray-400"}`}>{log}</div>
+                      <div key={i} className={`${log.startsWith("\u2713") ? "text-emerald-400" : log.startsWith("\u2717") ? "text-red-400" : log.startsWith("\u26a0") ? "text-amber-400" : "text-gray-400"}`}>{log}</div>
                     ))}
                   </div>
                 )}
@@ -990,25 +1375,25 @@ export default function ReviewPage() {
                             </td>
                             <td className="py-2 px-4 text-gray-600 tabular-nums">{index + 1}</td>
                             <td className="py-2 px-4">
-                              <span className="text-gray-300 font-medium">{s?.name || "—"}</span>
+                              <span className="text-gray-300 font-medium">{s?.name || "\u2014"}</span>
                             </td>
-                            <td className="py-2 px-4 text-gray-400">{s?.founded_year || "—"}</td>
-                            <td className="py-2 px-4 text-gray-400">{s?.pb_hq_city || s?.location || "—"}</td>
-                            <td className="py-2 px-4 text-right text-gray-500 tabular-nums">{(s as Record<string, unknown>)?.pb_employees != null ? String((s as Record<string, unknown>).pb_employees) : "—"}</td>
+                            <td className="py-2 px-4 text-gray-400">{s?.founded_year || "\u2014"}</td>
+                            <td className="py-2 px-4 text-gray-400">{s?.pb_hq_city || s?.location || "\u2014"}</td>
+                            <td className="py-2 px-4 text-right text-gray-500 tabular-nums">{(s as Record<string, unknown>)?.pb_employees != null ? String((s as Record<string, unknown>).pb_employees) : "\u2014"}</td>
                             <td className="py-2 px-4 text-center">
                               {s?.passed_headcount_filter !== null
-                                ? <span className="text-emerald-400 text-xs">✓</span>
+                                ? <span className="text-emerald-400 text-xs">{"\u2713"}</span>
                                 : <span className="text-yellow-500 text-xs">Pending</span>
                               }
                             </td>
                             <td className="py-2 px-4 text-center">
                               {s?.passed_llm_filter !== null
-                                ? <span className="text-emerald-400 text-xs">✓</span>
+                                ? <span className="text-emerald-400 text-xs">{"\u2713"}</span>
                                 : <span className="text-yellow-500 text-xs">Pending</span>
                               }
                             </td>
                             <td className="py-2 px-4 text-gray-500 max-w-xs">
-                              <p className="line-clamp-1 text-xs">{s?.pb_description || s?.what_they_do || "—"}</p>
+                              <p className="line-clamp-1 text-xs">{s?.pb_description || s?.what_they_do || "\u2014"}</p>
                             </td>
                           </tr>
                         );

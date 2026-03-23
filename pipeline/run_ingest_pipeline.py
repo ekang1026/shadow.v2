@@ -148,12 +148,21 @@ def run(file_path: str = None) -> dict:
             log.info(f"Found {len(companies)} pending companies")
 
             # Filter to those needing LinkedIn scrape
+            # Skip companies that: already have headcount, already have a filter result,
+            # or were previously marked as headcount_error (N/A — don't re-scrape)
             to_scrape = []
             for company in companies:
                 snapshot = company.get("snapshot")
                 if not snapshot:
                     continue
+                # Skip if already scraped successfully
                 if snapshot.get("passed_headcount_filter") is not None and snapshot.get("headcount") is not None:
+                    continue
+                # Skip if already marked as N/A (headcount_error) — don't re-scrape
+                if snapshot.get("headcount_error") == True:
+                    continue
+                # Skip if already explicitly failed HC filter
+                if snapshot.get("passed_headcount_filter") == False:
                     continue
                 linkedin_url = snapshot.get("linkedin_url")
                 if not linkedin_url:
@@ -194,26 +203,35 @@ def run(file_path: str = None) -> dict:
                 browser_mgr = PlaywrightBrowser(config)
 
                 log.info("Launching visible Chrome window for LinkedIn scraping...")
-                linkedin_stats = {"scraped": 0, "passed_filter": 0, "filtered_out": 0, "errors": 0}
+                linkedin_stats = {"scraped": 0, "passed_filter": 0, "filtered_out": 0, "errors": 0, "retried": 0}
 
-                with browser_mgr.launch() as (_, page):
-                    for i, company in enumerate(to_scrape):
+                MAX_RETRIES = 3  # Retry failed scrapes up to 3 times
+
+                def scrape_batch(batch, page, pass_label=""):
+                    """Scrape a batch of companies. Returns list of companies that failed (for retry)."""
+                    failed = []
+                    for i, company in enumerate(batch):
                         snapshot = company["snapshot"]
                         company_name = snapshot.get("name", "Unknown")
                         linkedin_url = snapshot["linkedin_url"]
 
-                        log.info(f"[{i+1}/{len(to_scrape)}] Scraping: {company_name} ({linkedin_url})")
+                        log.info(f"[{pass_label}{i+1}/{len(batch)}] Scraping: {company_name} ({linkedin_url})")
 
                         try:
                             data = scrape_linkedin_company(page, scraper, browser_mgr, linkedin_url)
 
                             if not data or data.get("headcount") is None:
-                                log.info(f"  ✗ FILTER: {company_name} — no headcount data (N/A)")
-                                update_snapshot(snapshot["id"], {
-                                    "passed_headcount_filter": False,
-                                    "headcount_error": True,
-                                })
-                                linkedin_stats["filtered_out"] += 1
+                                # Don't mark as failed yet on first pass — add to retry list
+                                if pass_label.startswith("Retry"):
+                                    log.info(f"  ✗ FILTER: {company_name} — no headcount data after retry (N/A)")
+                                    update_snapshot(snapshot["id"], {
+                                        "passed_headcount_filter": False,
+                                        "headcount_error": True,
+                                    })
+                                    linkedin_stats["filtered_out"] += 1
+                                else:
+                                    log.info(f"  ⚠ {company_name} — no headcount data, will retry")
+                                    failed.append(company)
                             else:
                                 headcount = data["headcount"]
                                 passed = HEADCOUNT_MIN <= headcount <= HEADCOUNT_MAX
@@ -228,7 +246,6 @@ def run(file_path: str = None) -> dict:
                                     linkedin_stats["passed_filter"] += 1
                                     log.info(f"  ✓ PASS: {company_name} — {headcount} employees → queuing for LLM")
 
-                                    # Immediately queue for LLM processing
                                     website_url = snapshot.get("website", "")
                                     if website_url:
                                         future = llm_pool.submit(
@@ -241,21 +258,49 @@ def run(file_path: str = None) -> dict:
                                     linkedin_stats["filtered_out"] += 1
                                     log.info(f"  ✗ FILTER: {company_name} — {headcount} employees")
 
-                            # Random delay between LinkedIn scrapes
                             delay = random.uniform(3, 6)
                             time.sleep(delay)
 
                         except Exception as e:
                             log.error(f"Error scraping {company_name}: {e}")
-                            update_snapshot(snapshot["id"], {
-                                "passed_headcount_filter": True,
-                                "headcount_error": True,
-                            })
+                            failed.append(company)
                             linkedin_stats["errors"] += 1
+
+                    return failed
+
+                with browser_mgr.launch() as (_, page):
+                    # Initial pass
+                    failed = scrape_batch(to_scrape, page, pass_label="")
+
+                    # Retry passes
+                    for retry_num in range(1, MAX_RETRIES + 1):
+                        if not failed:
+                            break
+                        log.info(f"")
+                        log.info(f"--- RETRY {retry_num}/{MAX_RETRIES}: {len(failed)} companies to retry ---")
+                        log.info(f"Waiting 10s before retry...")
+                        time.sleep(10)
+                        linkedin_stats["retried"] += len(failed)
+                        # On last retry, mark failures as filtered out
+                        is_last = retry_num == MAX_RETRIES
+                        if is_last:
+                            failed = scrape_batch(failed, page, pass_label=f"Retry {retry_num} - ")
+                            # Any still failed after last retry — mark them
+                            for company in failed:
+                                snapshot = company["snapshot"]
+                                update_snapshot(snapshot["id"], {
+                                    "passed_headcount_filter": False,
+                                    "headcount_error": True,
+                                })
+                                linkedin_stats["filtered_out"] += 1
+                                log.info(f"  ✗ FINAL FAIL: {snapshot.get('name', 'Unknown')} — giving up after {MAX_RETRIES} retries")
+                        else:
+                            failed = scrape_batch(failed, page, pass_label=f"Retry {retry_num} - ")
 
                 log.info(f"LinkedIn scraping complete: {linkedin_stats['scraped']} scraped, "
                          f"{linkedin_stats['passed_filter']} passed HC, "
                          f"{linkedin_stats['filtered_out']} filtered out, "
+                         f"{linkedin_stats['retried']} retried, "
                          f"{linkedin_stats['errors']} errors")
                 results["linkedin"] = linkedin_stats
 
