@@ -114,7 +114,7 @@ export default function IngestionsPage() {
       ) : runs.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-gray-500">
           <p className="text-lg font-medium">No ingestion runs yet</p>
-          <p className="text-sm mt-1">Upload a PitchBook file on the Do for Review page to get started.</p>
+          <p className="text-sm mt-1">Upload a PitchBook file on the Due for Review page to get started.</p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-gray-800">

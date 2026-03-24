@@ -44,7 +44,7 @@ function FunnelBar({ label, value, maxValue, color }: {
   );
 }
 
-const passLabels: Record<string, string> = { PM: "Pass \u2014 Market", PL: "Pass \u2014 Location", PS: "Pass \u2014 Stage", PT: "Pass \u2014 Traction" };
+const passLabels: Record<string, string> = { PM: "Pass — Market", PL: "Pass — Location", PS: "Pass — Stage", PT: "Pass — Traction" };
 const passColors: Record<string, string> = { PM: "text-red-400", PL: "text-orange-400", PS: "text-yellow-400", PT: "text-blue-400" };
 
 export default function MetricsPage() {
@@ -106,7 +106,7 @@ export default function MetricsPage() {
           <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-4">Classification Breakdown</h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-emerald-400 font-medium">HVT \u2014 High Value Target</span>
+              <span className="text-sm text-emerald-400 font-medium">HVT — High Value Target</span>
               <span className="text-sm text-gray-300 tabular-nums font-medium">{metrics.classificationCounts["HVT"] || 0}</span>
             </div>
             {["PM", "PL", "PS", "PT"].map((code) => (
