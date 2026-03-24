@@ -8,10 +8,11 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [collapsed, setCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("sidebar_collapsed") === "true";
-  });
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    setCollapsed(localStorage.getItem("sidebar_collapsed") === "true");
+  }, []);
 
   useEffect(() => {
     const handler = (e: Event) => {

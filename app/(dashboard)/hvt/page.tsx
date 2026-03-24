@@ -28,6 +28,13 @@ interface HVTCompany {
     pb_description: string | null;
     crustdata_enrichment: Record<string, unknown> | null;
     crustdata_enriched_at: string | null;
+    icp_description: string | null;
+    icp_evidence: string | null;
+    us_tam_customer_count: number | null;
+    us_tam_customer_count_source: string | null;
+    estimated_annual_contract_value: number | null;
+    estimated_annual_contract_value_evidence: string | null;
+    estimated_tam_usd: number | null;
   } | null;
   outreach: {
     outreach_count: number;
@@ -377,9 +384,10 @@ export default function HVTPage() {
                               <div className="mt-3 pt-3 border-t border-gray-700">
                                 <span className="text-xs text-gray-500 block mb-1">Leadership Team</span>
                                 {dms.slice(0, 5).map((dm, i) => (
-                                  <div key={i} className="flex items-center gap-2 mt-1">
+                                  <div key={i} className="flex items-center gap-2 mt-1 flex-wrap">
                                     <span className="text-xs text-gray-300">{dm.name as string}</span>
                                     <span className="text-[10px] text-gray-500">{dm.title as string}</span>
+                                    {dm.location && <span className="text-[9px] text-gray-600">({dm.location as string})</span>}
                                     {dm.linkedin_flagship_url && <a href={dm.linkedin_flagship_url as string} target="_blank" rel="noopener noreferrer" className="text-[9px] text-blue-400" onClick={(e) => e.stopPropagation()}>LI</a>}
                                   </div>
                                 ))}
@@ -428,22 +436,40 @@ export default function HVTPage() {
                             {company.latest_website_change ? (<><p className="text-sm text-gray-300 leading-relaxed">{company.latest_website_change.change_summary || "Change detected but no summary."}</p><p className="text-xs text-gray-500 mt-2">Detected {timeAgo(company.latest_website_change.checked_at)}</p></>) : (<p className="text-sm text-gray-500 italic">No website changes detected yet.</p>)}
                           </div>
                           <div className="bg-gray-800/50 rounded-lg p-4">
-                            <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Recent LinkedIn Posts</h4>
-                            {company.recent_posts.length > 0 ? (
+                            <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Market & TAM</h4>
+                            {s?.icp_description ? (
                               <div className="space-y-3">
-                                {company.recent_posts.map((post) => (
-                                  <div key={post.id} className="border-l-2 border-gray-700 pl-3">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${post.post_type === "ceo" ? "bg-purple-900/50 text-purple-300" : "bg-blue-900/50 text-blue-300"}`}>{post.post_type === "ceo" ? "CEO" : "CO"}</span>
-                                      <span className="text-xs text-gray-500">{post.posted_by}</span>
-                                      <span className="text-xs text-gray-600">{timeAgo(post.posted_at)}</span>
-                                    </div>
-                                    <p className="text-xs text-gray-400 line-clamp-2">{post.post_content}</p>
-                                    {post.post_url && (<a href={post.post_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-400 hover:text-blue-300 mt-1 inline-block" onClick={(e) => e.stopPropagation()}>View post &rarr;</a>)}
+                                <div>
+                                  <span className="text-[10px] text-gray-500 block mb-1">Ideal Customer Profile</span>
+                                  <p className="text-sm text-gray-200 font-medium">{s.icp_description}</p>
+                                  {s.icp_evidence && <p className="text-[10px] text-gray-500 mt-1 italic">{s.icp_evidence}</p>}
+                                </div>
+                                {s.us_tam_customer_count != null && s.us_tam_customer_count > 0 && (
+                                  <div className="flex justify-between items-baseline">
+                                    <span className="text-xs text-gray-500">US Customer Count</span>
+                                    <span className="text-sm font-medium text-white">{s.us_tam_customer_count.toLocaleString()}</span>
                                   </div>
-                                ))}
+                                )}
+                                {s.us_tam_customer_count_source && (
+                                  <p className="text-[10px] text-gray-500 -mt-2">{s.us_tam_customer_count_source}</p>
+                                )}
+                                {s.estimated_annual_contract_value != null && s.estimated_annual_contract_value > 0 && (
+                                  <div className="flex justify-between items-baseline">
+                                    <span className="text-xs text-gray-500">Est. ACV</span>
+                                    <span className="text-sm font-medium text-white">{formatMoney(s.estimated_annual_contract_value)}/yr</span>
+                                  </div>
+                                )}
+                                {s.estimated_tam_usd != null && s.estimated_tam_usd > 0 && (
+                                  <div className="flex justify-between items-baseline pt-2 border-t border-gray-700">
+                                    <span className="text-xs text-gray-400 font-medium">US TAM</span>
+                                    <span className="text-lg font-bold text-emerald-400">{formatMoney(s.estimated_tam_usd)}</span>
+                                  </div>
+                                )}
+                                {s.estimated_annual_contract_value_evidence && (
+                                  <p className="text-[10px] text-gray-500 italic">{s.estimated_annual_contract_value_evidence}</p>
+                                )}
                               </div>
-                            ) : (<p className="text-sm text-gray-500 italic">No recent LinkedIn activity.</p>)}
+                            ) : (<p className="text-sm text-gray-500 italic">No market data yet. Run LLM survey to populate.</p>)}
                           </div>
                         </div>
 
@@ -456,7 +482,7 @@ export default function HVTPage() {
                               {hcTimeseries && hcTimeseries.length > 0 && (
                                 <div className="mb-3">
                                   <span className="text-[10px] text-gray-500 block mb-1">Historical Headcount</span>
-                                  <Sparkline data={hcTimeseries.map(t => (t.headcount || t.value || 0) as number)} color="#34d399" />
+                                  <Sparkline data={hcTimeseries.map(t => (t.employee_count || t.headcount || t.value || 0) as number)} color="#34d399" />
                                   <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
                                     <span>{hcTimeseries[0]?.date as string || ""}</span>
                                     <span>{hcTimeseries[hcTimeseries.length - 1]?.date as string || ""}</span>
@@ -475,7 +501,7 @@ export default function HVTPage() {
                                   ))}
                                 </div>
                               )}
-                              {roleSixMo && Object.keys(roleSixMo).length > 0 && (
+                              {roleSixMo && typeof roleSixMo === 'object' && Object.keys(roleSixMo).length > 0 && (
                                 <div className="mt-3 pt-3 border-t border-gray-700">
                                   <span className="text-[10px] text-gray-500 block mb-1">6M Growth by Department</span>
                                   {Object.entries(roleSixMo).filter(([, v]) => v !== null).map(([dept, growth]) => (
@@ -500,16 +526,20 @@ export default function HVTPage() {
                                     <span className="text-xs text-gray-500">monthly visitors</span>
                                   </div>
                                   <div className="flex items-center gap-2 mb-3">
-                                    <span className={`text-xs font-medium ${(wt.monthly_visitor_qoq_pct as number) > 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                      {(wt.monthly_visitor_qoq_pct as number) > 0 ? "+" : ""}{(wt.monthly_visitor_qoq_pct as number)?.toFixed(1)}% QoQ
-                                    </span>
-                                    <span className={`text-xs font-medium ${(wt.monthly_visitor_mom_pct as number) > 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                      {(wt.monthly_visitor_mom_pct as number) > 0 ? "+" : ""}{(wt.monthly_visitor_mom_pct as number)?.toFixed(1)}% MoM
-                                    </span>
+                                    {wt.monthly_visitor_qoq_pct != null && (
+                                      <span className={`text-xs font-medium ${(wt.monthly_visitor_qoq_pct as number) > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                        {(wt.monthly_visitor_qoq_pct as number) > 0 ? "+" : ""}{(wt.monthly_visitor_qoq_pct as number).toFixed(1)}% QoQ
+                                      </span>
+                                    )}
+                                    {wt.monthly_visitor_mom_pct != null && (
+                                      <span className={`text-xs font-medium ${(wt.monthly_visitor_mom_pct as number) > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                        {(wt.monthly_visitor_mom_pct as number) > 0 ? "+" : ""}{(wt.monthly_visitor_mom_pct as number).toFixed(1)}% MoM
+                                      </span>
+                                    )}
                                   </div>
                                   {wtTimeseries && wtTimeseries.length > 0 && (
                                     <div className="mb-3">
-                                      <Sparkline data={wtTimeseries.map(t => (t.monthly_visitors || t.value || 0) as number)} color="#60a5fa" />
+                                      <Sparkline data={wtTimeseries.map(t => ((t.monthly_visitors ?? t.value ?? 0) as number))} color="#60a5fa" />
                                       <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
                                         <span>{wtTimeseries[0]?.date as string || ""}</span>
                                         <span>{wtTimeseries[wtTimeseries.length - 1]?.date as string || ""}</span>
@@ -586,19 +616,28 @@ export default function HVTPage() {
                               {founders && (
                                 <div className="mt-3 pt-3 border-t border-gray-700">
                                   <span className="text-[10px] text-gray-500 block mb-1">Founder Background</span>
-                                  {(founders.founders_education_institute as string[])?.map((school, i) => (
-                                    <div key={i} className="flex items-center gap-2 mt-1">
-                                      <span className="text-[10px] text-gray-300">{school}</span>
-                                      {(founders.founders_degree_name as string[])?.[i] && (
-                                        <span className="text-[9px] text-gray-500">({(founders.founders_degree_name as string[])[i]})</span>
-                                      )}
-                                    </div>
-                                  ))}
-                                  {(founders.founders_previous_companies as string[]) && (
+                                  {(() => {
+                                    const schools = Array.isArray(founders.founders_education_institute)
+                                      ? founders.founders_education_institute as string[]
+                                      : founders.founders_education_institute ? [founders.founders_education_institute as string] : [];
+                                    const degrees = Array.isArray(founders.founders_degree_name)
+                                      ? founders.founders_degree_name as string[]
+                                      : founders.founders_degree_name ? [founders.founders_degree_name as string] : [];
+                                    return schools.map((school, i) => (
+                                      <div key={i} className="flex items-center gap-2 mt-1">
+                                        <span className="text-[10px] text-gray-300">{school}</span>
+                                        {degrees[i] && <span className="text-[9px] text-gray-500">({degrees[i]})</span>}
+                                      </div>
+                                    ));
+                                  })()}
+                                  {founders.founders_previous_companies && (
                                     <div className="mt-2">
                                       <span className="text-[10px] text-gray-500 block mb-0.5">Previous Companies</span>
                                       <div className="flex flex-wrap gap-1">
-                                        {(founders.founders_previous_companies as string[]).slice(0, 6).map((c, i) => (
+                                        {(Array.isArray(founders.founders_previous_companies)
+                                          ? founders.founders_previous_companies as string[]
+                                          : [founders.founders_previous_companies as string]
+                                        ).slice(0, 6).map((c, i) => (
                                           <span key={i} className="text-[9px] px-1.5 py-0.5 bg-gray-700 text-gray-400 rounded">{c}</span>
                                         ))}
                                       </div>

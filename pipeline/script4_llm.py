@@ -277,6 +277,14 @@ def extract_survey_fields(survey: dict) -> dict:
         "agentic_features_present": to_bool(survey.get("agentic_features_present")),
         "agentic_feature_types": to_list(survey.get("agentic_feature_types")),
         "google_ad_competitors": to_list(survey.get("google_ad_competitors")),
+        # TAM fields
+        "icp_description": survey.get("icp_description", ""),
+        "icp_evidence": survey.get("icp_evidence", ""),
+        "us_tam_customer_count": survey.get("us_tam_customer_count", 0) if isinstance(survey.get("us_tam_customer_count"), int) else 0,
+        "us_tam_customer_count_source": survey.get("us_tam_customer_count_source", ""),
+        "estimated_annual_contract_value": survey.get("estimated_annual_contract_value", 0) if isinstance(survey.get("estimated_annual_contract_value"), int) else 0,
+        "estimated_annual_contract_value_evidence": survey.get("estimated_annual_contract_value_evidence", ""),
+        "estimated_tam_usd": survey.get("estimated_tam_usd", 0) if isinstance(survey.get("estimated_tam_usd"), int) else 0,
     }
 
 

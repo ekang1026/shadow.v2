@@ -193,6 +193,44 @@ Examples:
 If agentic_features_present is No, return an empty list.
 agentic_features_evidence:
 Provide the website language or close paraphrase supporting the presence or absence of agentic features.
+TARGET MARKET & TAM ESTIMATION
+Identify the specific customer persona the Target Company serves. Be as specific as possible.
+icp_description:
+Describe the ideal customer profile in plain language. Be specific about the type of business, not the industry.
+Examples of GOOD ICP descriptions:
+* "Audiologist clinics and hearing care practices"
+* "Registered Investment Advisors (RIAs) and broker-dealers"
+* "K-12 school athletic departments"
+* "Assisted living and memory care facilities"
+* "Independent auto repair shops"
+Examples of BAD ICP descriptions (too vague):
+* "Healthcare companies"
+* "Financial services firms"
+* "Small businesses"
+If the company serves multiple distinct customer types, list up to 3 separated by semicolons.
+icp_evidence:
+Provide website language supporting the ICP description.
+us_tam_customer_count:
+Estimate the total number of these businesses/organizations in the United States.
+Use your knowledge of US industry data, Census Bureau statistics, and common industry estimates.
+Return as an integer. If serving multiple ICPs, estimate the total across all.
+If you cannot estimate with reasonable confidence, return 0.
+us_tam_customer_count_source:
+Briefly explain how you arrived at the estimate (e.g., "~12,000 audiologist practices per ASHA data", "~13,000 RIAs per SEC registration data").
+estimated_annual_contract_value:
+Estimate the likely annual contract value (ACV) in USD based on:
+* The product's apparent complexity and feature set
+* The target customer size and ability to pay
+* The pricing model (if visible on the website)
+* Industry norms for similar vertical software
+Return as an integer. If pricing is not visible, estimate conservatively based on product complexity and customer type.
+estimated_annual_contract_value_evidence:
+Explain the basis for your ACV estimate.
+estimated_tam_usd:
+Multiply us_tam_customer_count by estimated_annual_contract_value.
+Return as an integer representing total US TAM in dollars.
+If either input is 0 or unknown, return 0.
+
 COMPETITIVE LANDSCAPE
 A list of companies purchasing Google AdWords against this company's name is provided below the website content (if any were found). These are companies actively bidding on this company's brand keywords, which strongly suggests they are direct competitors or alternatives.
 google_ad_competitors:
@@ -203,7 +241,7 @@ google_ad_competitors_evidence:
 Briefly describe why these companies appear to be competitors based on their ad text and the target company's product.
 </survey>
 Return results using this JSON schema:
-{ "offering_type": List[str], "offering_type_evidence": str, "customer_type": List[str], "customer_type_evidence": str, "market_focus": str, "market_focus_evidence": str, "NAICS_3digit_code": str, "NAICS_3digit_name": str, "product_category": str, "product_category_evidence": str, "revenue_model": List[str], "revenue_model_evidence": str, "is_subsidiary": bool, "vertical_type": str, "multi_vertical_type": str, "disfavored_vertical": str, "customers_listed": str, "customers_listed_evidence": str, "customers_named": List[str], "success_indicators_present": str, "success_indicators": List[str], "success_indicators_evidence": str, "agentic_features_present": str, "agentic_feature_types": List[str], "agentic_features_evidence": str, "google_ad_competitors": List[str], "google_ad_competitors_evidence": str }
+{ "offering_type": List[str], "offering_type_evidence": str, "customer_type": List[str], "customer_type_evidence": str, "market_focus": str, "market_focus_evidence": str, "NAICS_3digit_code": str, "NAICS_3digit_name": str, "product_category": str, "product_category_evidence": str, "revenue_model": List[str], "revenue_model_evidence": str, "is_subsidiary": bool, "vertical_type": str, "multi_vertical_type": str, "disfavored_vertical": str, "customers_listed": str, "customers_listed_evidence": str, "customers_named": List[str], "success_indicators_present": str, "success_indicators": List[str], "success_indicators_evidence": str, "agentic_features_present": str, "agentic_feature_types": List[str], "agentic_features_evidence": str, "icp_description": str, "icp_evidence": str, "us_tam_customer_count": int, "us_tam_customer_count_source": str, "estimated_annual_contract_value": int, "estimated_annual_contract_value_evidence": str, "estimated_tam_usd": int, "google_ad_competitors": List[str], "google_ad_competitors_evidence": str }
 VALIDATION RULES
 Before returning the final JSON:
 * customers_named must contain only companies explicitly mentioned on the website.

@@ -19,10 +19,13 @@ export default function Sidebar() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [collapsed, setCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("sidebar_collapsed") === "true";
-  });
+  const [collapsed, setCollapsed] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setCollapsed(localStorage.getItem("sidebar_collapsed") === "true");
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("sidebar_collapsed", String(collapsed));
