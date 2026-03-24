@@ -599,10 +599,10 @@ function CompanyRow({
                       const name = (dm.name as string) || s.pb_primary_contact as string || "(unnamed)";
                       return (
                         <div key={i} className="flex items-start gap-2 flex-wrap">
-                          <span className="text-xs text-gray-300 font-medium">{name}</span>
-                          <span className="text-[10px] text-gray-500">{dm.title as string}</span>
-                          {dm.location && <span className="text-[9px] text-gray-600">({dm.location as string})</span>}
-                          {dm.linkedin_flagship_url && <a href={dm.linkedin_flagship_url as string} target="_blank" rel="noopener noreferrer" className="text-[9px] text-blue-400" onClick={(e) => e.stopPropagation()}>LI</a>}
+                          <span className="text-sm text-gray-200 font-medium">{name}</span>
+                          <span className="text-xs text-gray-500">{dm.title as string}</span>
+                          {dm.location && <span className="text-[10px] text-gray-500">({dm.location as string})</span>}
+                          {dm.linkedin_flagship_url && <a href={dm.linkedin_flagship_url as string} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-400" onClick={(e) => e.stopPropagation()}>LI</a>}
                         </div>
                       );
                     })}
@@ -610,13 +610,13 @@ function CompanyRow({
                 ) : s.pb_primary_contact ? (
                   <div className="space-y-2">
                     <div className="flex items-start gap-2 flex-wrap">
-                      <span className="text-xs text-gray-300 font-medium">{s.pb_primary_contact}</span>
-                      {s.pb_primary_contact_title && <span className="text-[10px] text-gray-500">{s.pb_primary_contact_title}</span>}
+                      <span className="text-sm text-gray-200 font-medium">{s.pb_primary_contact}</span>
+                      {s.pb_primary_contact_title && <span className="text-xs text-gray-500">{s.pb_primary_contact_title}</span>}
                     </div>
                     {s.pb_primary_contact_email && (
-                      <div><span className="text-[10px] text-gray-500">Email: </span><a href={`mailto:${s.pb_primary_contact_email}`} className="text-[10px] text-blue-400" onClick={(e) => e.stopPropagation()}>{s.pb_primary_contact_email}</a></div>
+                      <div><span className="text-xs text-gray-500">Email: </span><a href={`mailto:${s.pb_primary_contact_email}`} className="text-xs text-blue-400" onClick={(e) => e.stopPropagation()}>{s.pb_primary_contact_email}</a></div>
                     )}
-                    <p className="text-[9px] text-gray-600 italic mt-1">Source: PitchBook</p>
+                    <p className="text-[10px] text-gray-600 italic mt-1">Source: PitchBook</p>
                   </div>
                 ) : <p className="text-sm text-gray-500 italic">No leadership data yet.</p>}
               </div>
