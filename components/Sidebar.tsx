@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 
 const navItems = [
-  { href: "/review", label: "Do for Review", icon: "📋" },
+  { href: "/review", label: "Due for Review", icon: "📋" },
   { href: "/hvt", label: "HVT", icon: "🎯" },
   { href: "/ingestions", label: "Ingestions", icon: "📥" },
   { href: "/metrics", label: "Monthly Metrics", icon: "📊" },

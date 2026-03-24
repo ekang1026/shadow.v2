@@ -423,7 +423,7 @@ function renderCell(
         <td key={colId} className="py-3 px-4 text-center">
           {handleMoveToReview && (
             <button
-              onClick={() => handleMoveToReview(company.id)}
+              onClick={(e) => { e.stopPropagation(); handleMoveToReview(company.id); }}
               className="px-2 py-1 text-xs font-medium text-blue-400 hover:text-blue-300 border border-blue-800 hover:border-blue-600 rounded transition-colors"
               title="Move this company to the review queue"
             >
@@ -438,7 +438,7 @@ function renderCell(
         <td key={colId} className="py-3 px-4">
           <div className="flex items-center justify-center gap-1">
             {classificationOptions.map((opt) => (
-              <button key={opt.value} onClick={() => onSelect(company.id, opt.value)} disabled={submitting} className={`px-2 py-1 rounded text-xs font-medium transition-all cursor-pointer ${currentSelection === opt.value ? `${opt.color} bg-gray-700 ring-1 ring-current` : "text-gray-500 hover:text-gray-300 hover:bg-gray-800"} ${submitting ? "cursor-not-allowed opacity-50" : ""}`} title={opt.label}>
+              <button key={opt.value} onClick={(e) => { e.stopPropagation(); onSelect(company.id, opt.value); }} disabled={submitting} className={`px-2 py-1 rounded text-xs font-medium transition-all cursor-pointer ${currentSelection === opt.value ? `${opt.color} bg-gray-700 ring-1 ring-current` : "text-gray-500 hover:text-gray-300 hover:bg-gray-800"} ${submitting ? "cursor-not-allowed opacity-50" : ""}`} title={opt.label}>
                 {opt.label}
               </button>
             ))}
@@ -483,7 +483,7 @@ function CompanyRow({
 
   return (
     <React.Fragment>
-      <tr className={`border-b border-gray-800/50 transition-all duration-200 ${dimmed ? "opacity-50" : ""} ${currentSelection ? "bg-gray-900/40" : "hover:bg-gray-900/30"}`}>
+      <tr className={`border-b border-gray-800/50 transition-all duration-200 cursor-pointer ${dimmed ? "opacity-50" : ""} ${currentSelection ? "bg-gray-900/40" : "hover:bg-gray-900/30"}`} onClick={() => onToggleExpand(company.id)}>
         {columnOrder.map((colId) =>
           renderCell(colId, company, index, {
             expandedRow,
@@ -1158,7 +1158,7 @@ export default function ReviewPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">Do for Review</h1>
+          <h1 className="text-2xl font-bold text-white">Due for Review</h1>
           <p className="text-gray-400 text-sm mt-1">Classify companies that have passed all pipeline filters.</p>
         </div>
         <div className="flex items-center gap-3">
