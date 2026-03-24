@@ -508,31 +508,222 @@ function CompanyRow({
           handleMoveToReview,
         })}
       </tr>
-      {expandedRow === company.id && s && (
+      {expandedRow === company.id && s && (() => {
+        const cd = s.crustdata_enrichment as Record<string, unknown> | null;
+        const hc = cd?.headcount as Record<string, unknown> | null;
+        const wt = cd?.web_traffic as Record<string, unknown> | null;
+        const funding = cd?.funding_and_investment as Record<string, unknown> | null;
+        const founders = cd?.founders as Record<string, unknown> | null;
+        const seoData = cd?.seo as Record<string, unknown> | null;
+        const dms = cd?.decision_makers as Array<Record<string, unknown>> | null;
+        const competitors_cd = cd?.competitors as Record<string, unknown> | null;
+        const rolePercent = hc?.linkedin_headcount_by_role_percent as Record<string, number> | null;
+        const paidSeoComps = competitors_cd?.paid_seo_competitors_website_domains as string[] | null;
+        const organicSeoComps = competitors_cd?.organic_seo_competitors_website_domains as string[] | null;
+
+        const MiniBar = ({ value, max, color = "bg-blue-500" }: { value: number; max: number; color?: string }) => (
+          <div className="w-full bg-gray-700 rounded-full h-1.5">
+            <div className={`${color} h-1.5 rounded-full`} style={{ width: `${Math.min(100, (value / max) * 100)}%` }} />
+          </div>
+        );
+
+        return (
         <tr className="bg-gray-900/60">
-          <td colSpan={totalCols} className="py-4 px-8">
-            <div className="grid grid-cols-4 gap-4 text-xs">
-              <div><span className="text-gray-500 block mb-1">Offering</span><span className="text-gray-300">{s.offering_type?.join(", ") || "\u2014"}</span></div>
-              <div><span className="text-gray-500 block mb-1">Customer Type</span><span className="text-gray-300">{s.customer_type?.join(", ") || "\u2014"}</span></div>
-              <div><span className="text-gray-500 block mb-1">Product Category</span><span className="text-gray-300">{s.product_category || "\u2014"}</span></div>
-              <div><span className="text-gray-500 block mb-1">Revenue Model</span><span className="text-gray-300">{s.revenue_model?.join(", ") || "\u2014"}</span></div>
-              <div><span className="text-gray-500 block mb-1">Market / Vertical</span><span className="text-gray-300">{s.market_focus || "\u2014"}{s.vertical_type ? ` (${s.vertical_type})` : ""}</span></div>
-              <div><span className="text-gray-500 block mb-1">NAICS</span><span className="text-gray-300">{s.naics_3digit_name || "\u2014"}</span></div>
-              <div><span className="text-gray-500 block mb-1">Success Signals</span><span className="text-gray-300">{s.success_indicators_present ? "Yes" : "No"}</span></div>
-              <div><span className="text-gray-500 block mb-1">Agentic</span><span className="text-gray-300">{s.agentic_features_present ? (s.agentic_feature_types?.join(", ") || "Yes") : "No"}</span></div>
-              {s.customers_named && s.customers_named.length > 0 && (
-                <div className="col-span-4"><span className="text-gray-500 block mb-1">Named Customers</span><span className="text-gray-300">{s.customers_named.join(", ")}</span></div>
-              )}
-              {s.disfavored_vertical && (
-                <div className="col-span-4"><span className="text-red-400 text-xs font-medium">Disfavored vertical: {s.disfavored_vertical}</span></div>
-              )}
-              {s.pb_description && (
-                <div className="col-span-4"><span className="text-gray-500 block mb-1">PitchBook Description</span><span className="text-gray-300">{s.pb_description}</span></div>
-              )}
+          <td colSpan={totalCols} className="py-4 px-6">
+            {/* Row 1: Core Info */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-4">
+              {/* What They Do + Survey Details */}
+              <div className="bg-gray-800/50 rounded-lg p-4">
+                <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">What They Do</h4>
+                <p className="text-sm text-gray-300 leading-relaxed">{s.what_they_do || s.pb_description || "\u2014"}</p>
+                <div className="mt-3 pt-3 border-t border-gray-700 grid grid-cols-2 gap-2 text-[10px]">
+                  <div><span className="text-gray-500 block">Offering</span><span className="text-gray-300">{s.offering_type?.join(", ") || "\u2014"}</span></div>
+                  <div><span className="text-gray-500 block">Customer</span><span className="text-gray-300">{s.customer_type?.join(", ") || "\u2014"}</span></div>
+                  <div><span className="text-gray-500 block">Revenue</span><span className="text-gray-300">{s.revenue_model?.join(", ") || "\u2014"}</span></div>
+                  <div><span className="text-gray-500 block">Product</span><span className="text-gray-300">{s.product_category || "\u2014"}</span></div>
+                  <div><span className="text-gray-500 block">Market</span><span className="text-gray-300">{s.market_focus || "\u2014"}{s.vertical_type ? ` (${s.vertical_type})` : ""}</span></div>
+                  <div><span className="text-gray-500 block">NAICS</span><span className="text-gray-300">{s.naics_3digit_name || "\u2014"}</span></div>
+                  {s.agentic_features_present && <div><span className="text-gray-500 block">Agentic</span><span className="text-emerald-400">{s.agentic_feature_types?.join(", ") || "Yes"}</span></div>}
+                  {s.success_indicators_present && <div><span className="text-gray-500 block">Traction</span><span className="text-emerald-400">Yes</span></div>}
+                </div>
+                {s.customers_named && s.customers_named.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-gray-700">
+                    <span className="text-[10px] text-gray-500 block mb-0.5">Named Customers</span>
+                    <span className="text-[10px] text-gray-300">{s.customers_named.join(", ")}</span>
+                  </div>
+                )}
+                {dms && dms.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-gray-700">
+                    <span className="text-[10px] text-gray-500 block mb-1">Leadership</span>
+                    {dms.slice(0, 4).map((dm, i) => (
+                      <div key={i} className="flex items-center gap-1 mt-0.5 flex-wrap">
+                        <span className="text-[10px] text-gray-300">{dm.name as string}</span>
+                        <span className="text-[9px] text-gray-500">{dm.title as string}</span>
+                        {dm.location && <span className="text-[9px] text-gray-600">({dm.location as string})</span>}
+                        {dm.linkedin_flagship_url && <a href={dm.linkedin_flagship_url as string} target="_blank" rel="noopener noreferrer" className="text-[9px] text-blue-400" onClick={(e) => e.stopPropagation()}>LI</a>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Market & TAM */}
+              <div className="bg-gray-800/50 rounded-lg p-4">
+                <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Market & TAM</h4>
+                {s.icp_description ? (
+                  <div className="space-y-2">
+                    <div>
+                      <span className="text-[10px] text-gray-500 block mb-1">Ideal Customer Profile</span>
+                      <p className="text-sm text-gray-200 font-medium">{s.icp_description}</p>
+                    </div>
+                    {s.us_tam_customer_count != null && s.us_tam_customer_count > 0 && (
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-xs text-gray-500">US Customers</span>
+                        <span className="text-sm font-medium text-white">{s.us_tam_customer_count.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {s.us_tam_customer_count_source && <p className="text-[10px] text-gray-500 -mt-1">{s.us_tam_customer_count_source}</p>}
+                    {s.estimated_annual_contract_value != null && s.estimated_annual_contract_value > 0 && (
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-xs text-gray-500">Est. ACV</span>
+                        <span className="text-sm font-medium text-white">{formatMoney(s.estimated_annual_contract_value)}/yr</span>
+                      </div>
+                    )}
+                    {s.estimated_tam_usd != null && s.estimated_tam_usd > 0 && (
+                      <div className="flex justify-between items-baseline pt-2 border-t border-gray-700">
+                        <span className="text-xs text-gray-400 font-medium">US TAM</span>
+                        <span className="text-lg font-bold text-emerald-400">{formatMoney(s.estimated_tam_usd)}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : <p className="text-sm text-gray-500 italic">No market data yet.</p>}
+                {/* Competitors */}
+                {((paidSeoComps && paidSeoComps.length > 0) || (organicSeoComps && organicSeoComps.length > 0)) && (
+                  <div className="mt-3 pt-3 border-t border-gray-700">
+                    <span className="text-[10px] text-gray-500 block mb-1">SEO Competitors</span>
+                    <div className="flex flex-wrap gap-1">
+                      {(paidSeoComps || []).slice(0, 4).map((c, i) => <span key={`p${i}`} className="text-[10px] px-1.5 py-0.5 bg-amber-900/30 text-amber-300 rounded">{c.trim()}</span>)}
+                      {(organicSeoComps || []).slice(0, 4).map((c, i) => <span key={`o${i}`} className="text-[10px] px-1.5 py-0.5 bg-blue-900/30 text-blue-300 rounded">{c.trim()}</span>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Headcount & Roles */}
+              <div className="bg-gray-800/50 rounded-lg p-4">
+                <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Team Breakdown</h4>
+                {rolePercent && Object.keys(rolePercent).length > 0 ? (
+                  <div>
+                    {Object.entries(rolePercent).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([role, pct]) => (
+                      <div key={role} className="flex items-center gap-2 mt-1.5">
+                        <span className="text-[10px] text-gray-400 w-24 truncate">{role}</span>
+                        <MiniBar value={pct} max={Math.max(...Object.values(rolePercent))} color="bg-emerald-500" />
+                        <span className="text-[10px] text-gray-500 w-10 text-right">{pct.toFixed(0)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-sm text-gray-500 italic">No team data yet.</p>}
+                {/* Founder background */}
+                {founders && (founders.founders_education_institute || founders.founders_previous_companies) && (
+                  <div className="mt-3 pt-3 border-t border-gray-700">
+                    <span className="text-[10px] text-gray-500 block mb-1">Founder Background</span>
+                    {(() => {
+                      const schools = Array.isArray(founders.founders_education_institute)
+                        ? founders.founders_education_institute as string[]
+                        : founders.founders_education_institute ? [founders.founders_education_institute as string] : [];
+                      return schools.slice(0, 3).map((school, i) => (
+                        <div key={i} className="text-[10px] text-gray-300 mt-0.5">{school}</div>
+                      ));
+                    })()}
+                    {founders.founders_previous_companies && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(Array.isArray(founders.founders_previous_companies)
+                          ? founders.founders_previous_companies as string[]
+                          : [founders.founders_previous_companies as string]
+                        ).slice(0, 5).map((c, i) => (
+                          <span key={i} className="text-[9px] px-1.5 py-0.5 bg-gray-700 text-gray-400 rounded">{c}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Web Traffic + SEO + Funding */}
+              <div className="bg-gray-800/50 rounded-lg p-4">
+                <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Digital & Funding</h4>
+                {wt ? (
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between">
+                      <span className="text-[10px] text-gray-500">Monthly Visitors</span>
+                      <span className="text-xs font-medium text-white">{((wt.monthly_visitors as number) || 0).toLocaleString()}</span>
+                    </div>
+                    {wt.monthly_visitor_qoq_pct != null && (
+                      <div className="flex justify-between">
+                        <span className="text-[10px] text-gray-500">QoQ Traffic</span>
+                        <span className={`text-xs ${(wt.monthly_visitor_qoq_pct as number) > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                          {(wt.monthly_visitor_qoq_pct as number) > 0 ? "+" : ""}{(wt.monthly_visitor_qoq_pct as number).toFixed(1)}%
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : <p className="text-[10px] text-gray-500 italic">No web traffic data.</p>}
+                {seoData && (
+                  <div className="mt-2 pt-2 border-t border-gray-700 space-y-1.5">
+                    {seoData.monthly_google_ads_budget != null && (
+                      <div className="flex justify-between">
+                        <span className="text-[10px] text-gray-500">Google Ads</span>
+                        <span className="text-xs text-amber-400">${((seoData.monthly_google_ads_budget as number)).toLocaleString()}/mo</span>
+                      </div>
+                    )}
+                    {seoData.total_ads_purchased != null && (
+                      <div className="flex justify-between">
+                        <span className="text-[10px] text-gray-500">Active Ads</span>
+                        <span className="text-xs text-gray-300">{seoData.total_ads_purchased as number}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {funding && (
+                  <div className="mt-2 pt-2 border-t border-gray-700 space-y-1.5">
+                    <div className="flex justify-between">
+                      <span className="text-[10px] text-gray-500">Total Raised</span>
+                      <span className="text-xs font-medium text-white">{formatMoney(funding.crunchbase_total_investment_usd as number)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[10px] text-gray-500">Last Round</span>
+                      <span className="text-[10px] text-gray-300 capitalize">{(funding.last_funding_round_type as string) || "\u2014"}</span>
+                    </div>
+                    {funding.days_since_last_fundraise != null && (
+                      <div className="flex justify-between">
+                        <span className="text-[10px] text-gray-500">Days Since Raise</span>
+                        <span className="text-[10px] text-gray-300">{funding.days_since_last_fundraise as number}d</span>
+                      </div>
+                    )}
+                    {funding.crunchbase_investors && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(funding.crunchbase_investors as string[]).slice(0, 4).map((inv, i) => (
+                          <span key={i} className="text-[9px] px-1.5 py-0.5 bg-gray-700 text-gray-300 rounded">{inv}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!wt && !seoData && !funding && <p className="text-sm text-gray-500 italic">No enrichment data. Run Crust Data enrichment to populate.</p>}
+                {cd?.estimated_revenue_lower_bound_usd != null && (
+                  <div className="mt-2 pt-2 border-t border-gray-700">
+                    <div className="flex justify-between">
+                      <span className="text-[10px] text-gray-500">Est. Revenue</span>
+                      <span className="text-xs text-white">{formatMoney(cd.estimated_revenue_lower_bound_usd as number)} - {formatMoney(cd.estimated_revenue_higher_bound_usd as number)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </td>
         </tr>
-      )}
+        );
+      })()}
     </React.Fragment>
   );
 }
