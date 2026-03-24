@@ -595,16 +595,30 @@ function CompanyRow({
                 <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Leadership Team</h4>
                 {dms && dms.length > 0 ? (
                   <div className="space-y-2">
-                    {dms.slice(0, 8).map((dm, i) => (
-                      <div key={i} className="flex items-start gap-2 flex-wrap">
-                        <span className="text-xs text-gray-300 font-medium">{dm.name as string}</span>
-                        <span className="text-[10px] text-gray-500">{dm.title as string}</span>
-                        {dm.location && <span className="text-[9px] text-gray-600">({dm.location as string})</span>}
-                        {dm.linkedin_flagship_url && <a href={dm.linkedin_flagship_url as string} target="_blank" rel="noopener noreferrer" className="text-[9px] text-blue-400" onClick={(e) => e.stopPropagation()}>LI</a>}
-                      </div>
-                    ))}
+                    {dms.slice(0, 8).map((dm, i) => {
+                      const name = (dm.name as string) || s.pb_primary_contact as string || "(unnamed)";
+                      return (
+                        <div key={i} className="flex items-start gap-2 flex-wrap">
+                          <span className="text-xs text-gray-300 font-medium">{name}</span>
+                          <span className="text-[10px] text-gray-500">{dm.title as string}</span>
+                          {dm.location && <span className="text-[9px] text-gray-600">({dm.location as string})</span>}
+                          {dm.linkedin_flagship_url && <a href={dm.linkedin_flagship_url as string} target="_blank" rel="noopener noreferrer" className="text-[9px] text-blue-400" onClick={(e) => e.stopPropagation()}>LI</a>}
+                        </div>
+                      );
+                    })}
                   </div>
-                ) : <p className="text-sm text-gray-500 italic">No leadership data. Run Crust Data enrichment to populate.</p>}
+                ) : s.pb_primary_contact ? (
+                  <div className="space-y-2">
+                    <div className="flex items-start gap-2 flex-wrap">
+                      <span className="text-xs text-gray-300 font-medium">{s.pb_primary_contact}</span>
+                      {s.pb_primary_contact_title && <span className="text-[10px] text-gray-500">{s.pb_primary_contact_title}</span>}
+                    </div>
+                    {s.pb_primary_contact_email && (
+                      <div><span className="text-[10px] text-gray-500">Email: </span><a href={`mailto:${s.pb_primary_contact_email}`} className="text-[10px] text-blue-400" onClick={(e) => e.stopPropagation()}>{s.pb_primary_contact_email}</a></div>
+                    )}
+                    <p className="text-[9px] text-gray-600 italic mt-1">Source: PitchBook</p>
+                  </div>
+                ) : <p className="text-sm text-gray-500 italic">No leadership data yet.</p>}
               </div>
 
               {/* Panel 4: Market & TAM */}
