@@ -87,6 +87,35 @@ def process_company_llm(snapshot_id: str, company_name: str, website_url: str):
 
         if passed:
             log.info(f"  [LLM] ✓ PASS: {company_name} — {reason}")
+            # Auto-enrich with Crust Data when company passes both filters
+            try:
+                from script5_crustdata import enrich_company, extract_domain
+                from datetime import datetime
+                domain = extract_domain(website_url)
+                if domain:
+                    log.info(f"  [CrustData] Enriching: {company_name} ({domain})")
+                    cd_data = enrich_company(domain)
+                    if cd_data and "error" not in cd_data:
+                        update_snapshot(snapshot_id, {
+                            "crustdata_enrichment": cd_data,
+                            "crustdata_enriched_at": datetime.utcnow().isoformat(),
+                        })
+                        # Update CEO from Crust Data
+                        dms = cd_data.get("decision_makers", [])
+                        if isinstance(dms, list):
+                            for dm in dms:
+                                title = (dm.get("title") or "").lower()
+                                if "ceo" in title or "chief executive" in title or "founder" in title:
+                                    update_snapshot(snapshot_id, {
+                                        "ceo_name": dm.get("name"),
+                                        "ceo_linkedin_url": dm.get("linkedin_flagship_url") or dm.get("linkedin_profile_url"),
+                                    })
+                                    break
+                        log.info(f"  [CrustData] ✓ Enriched: {company_name}")
+                    else:
+                        log.warning(f"  [CrustData] No data for {company_name}")
+            except Exception as e:
+                log.warning(f"  [CrustData] Enrichment failed for {company_name}: {e}")
         else:
             log.info(f"  [LLM] ✗ FAIL: {company_name} — {reason}")
 

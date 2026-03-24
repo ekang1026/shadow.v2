@@ -27,6 +27,7 @@ async function createGmailDraft(
   // Build the RFC 2822 email message
   const messageParts = [
     `To: ${to}`,
+    `Bcc: 45041951@bcc.na2.hubspot.com`,
     `Subject: ${subject}`,
     "Content-Type: text/html; charset=utf-8",
     "",
