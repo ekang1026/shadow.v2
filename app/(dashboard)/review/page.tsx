@@ -81,6 +81,7 @@ const PASSED_COLUMNS: ColumnDef[] = [
   { id: "raised", label: "Raised", defaultWidth: 100, minWidth: 70, align: "right", sortKey: "raised" },
   { id: "lastVal", label: "Last Val.", defaultWidth: 100, minWidth: 70, align: "right", sortKey: "lastval" },
   { id: "whatTheyDo", label: "What They Do", defaultWidth: 260, minWidth: 120, align: "left" },
+  { id: "customers", label: "Customers", defaultWidth: 180, minWidth: 100, align: "left" },
   { id: "market", label: "Market", defaultWidth: 80, minWidth: 50, align: "center" },
   { id: "agentic", label: "Agentic", defaultWidth: 80, minWidth: 50, align: "center" },
 ];
@@ -381,6 +382,15 @@ function renderCell(
       return (
         <td key={colId} className="py-3 px-4 text-gray-400 cursor-pointer overflow-hidden" onClick={() => onToggleExpand(company.id)} title="Click to expand survey details">
           <p className="line-clamp-2 text-xs leading-relaxed">{s?.what_they_do || s?.pb_description || "\u2014"}</p>
+        </td>
+      );
+
+    case "customers":
+      return (
+        <td key={colId} className="py-3 px-4 text-gray-400 overflow-hidden">
+          {s?.customers_named && s.customers_named.length > 0 ? (
+            <p className="line-clamp-2 text-xs">{s.customers_named.join(", ")}</p>
+          ) : <span className="text-gray-600">{"\u2014"}</span>}
         </td>
       );
 
