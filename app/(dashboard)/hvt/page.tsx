@@ -25,6 +25,9 @@ interface HVTCompany {
     what_they_do: string | null;
     competitors: { name: string; source: string; rationale: string }[] | null;
     competitor_confidence: string | null;
+    pb_description: string | null;
+    crustdata_enrichment: Record<string, unknown> | null;
+    crustdata_enriched_at: string | null;
   } | null;
   outreach: {
     outreach_count: number;
@@ -320,15 +323,68 @@ export default function HVTPage() {
                       ) : <span className="text-gray-600 text-xs">{"\u2014"}</span>}
                     </td>
                   </tr>
-                  {isExpanded && (
+                  {isExpanded && (() => {
+                    const cd = s?.crustdata_enrichment as Record<string, unknown> | null;
+                    const hc = cd?.headcount as Record<string, unknown> | null;
+                    const wt = cd?.web_traffic as Record<string, unknown> | null;
+                    const funding = cd?.funding_and_investment as Record<string, unknown> | null;
+                    const founders = cd?.founders as Record<string, unknown> | null;
+                    const seoData = cd?.seo as Record<string, unknown> | null;
+                    const dms = cd?.decision_makers as Array<Record<string, unknown>> | null;
+                    const competitors_cd = cd?.competitors as Record<string, unknown> | null;
+                    const hcTimeseries = hc?.linkedin_headcount_timeseries as Array<Record<string, unknown>> | null;
+                    const wtTimeseries = wt?.monthly_visitors_timeseries as Array<Record<string, unknown>> | null;
+                    const roleAbsolute = hc?.linkedin_headcount_by_role_absolute as Record<string, number> | null;
+                    const rolePercent = hc?.linkedin_headcount_by_role_percent as Record<string, number> | null;
+                    const roleSixMo = hc?.linkedin_headcount_by_role_six_months_growth_percent as Record<string, number> | null;
+                    const fundingMilestones = funding?.funding_milestones_timeseries as Array<Record<string, unknown>> | null;
+                    const paidSeoComps = competitors_cd?.paid_seo_competitors_website_domains as string[] | null;
+                    const organicSeoComps = competitors_cd?.organic_seo_competitors_website_domains as string[] | null;
+
+                    // Mini bar chart helper
+                    const MiniBar = ({ value, max, color = "bg-blue-500" }: { value: number; max: number; color?: string }) => (
+                      <div className="w-full bg-gray-700 rounded-full h-1.5">
+                        <div className={`${color} h-1.5 rounded-full`} style={{ width: `${Math.min(100, (value / max) * 100)}%` }} />
+                      </div>
+                    );
+
+                    // Sparkline helper for timeseries
+                    const Sparkline = ({ data, color = "#60a5fa" }: { data: number[]; color?: string }) => {
+                      if (!data || data.length < 2) return null;
+                      const min = Math.min(...data);
+                      const max = Math.max(...data);
+                      const range = max - min || 1;
+                      const w = 200; const h = 40;
+                      const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * h}`).join(" ");
+                      return (
+                        <svg width={w} height={h} className="overflow-visible">
+                          <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
+                        </svg>
+                      );
+                    };
+
+                    return (
                     <tr className="bg-gray-900/30">
                       <td colSpan={12} className="px-4 py-4">
-                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 pl-6">
+                        {/* Row 1: Core Info */}
+                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 pl-6 mb-4">
                           <div className="bg-gray-800/50 rounded-lg p-4">
                             <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">What They Do</h4>
-                            <p className="text-sm text-gray-300 leading-relaxed">{s?.what_they_do || "No summary available."}</p>
+                            <p className="text-sm text-gray-300 leading-relaxed">{s?.what_they_do || s?.pb_description || "No summary available."}</p>
                             {s?.ceo_email && (<div className="mt-3 pt-3 border-t border-gray-700"><span className="text-xs text-gray-500">CEO Email: </span><a href={`mailto:${s.ceo_email}`} className="text-xs text-blue-400 hover:text-blue-300" onClick={(e) => e.stopPropagation()}>{s.ceo_email}</a></div>)}
                             {s?.ceo_phone && (<div className="mt-1"><span className="text-xs text-gray-500">CEO Phone: </span><span className="text-xs text-gray-300">{s.ceo_phone}</span></div>)}
+                            {dms && dms.length > 0 && (
+                              <div className="mt-3 pt-3 border-t border-gray-700">
+                                <span className="text-xs text-gray-500 block mb-1">Leadership Team</span>
+                                {dms.slice(0, 5).map((dm, i) => (
+                                  <div key={i} className="flex items-center gap-2 mt-1">
+                                    <span className="text-xs text-gray-300">{dm.name as string}</span>
+                                    <span className="text-[10px] text-gray-500">{dm.title as string}</span>
+                                    {dm.linkedin_flagship_url && <a href={dm.linkedin_flagship_url as string} target="_blank" rel="noopener noreferrer" className="text-[9px] text-blue-400" onClick={(e) => e.stopPropagation()}>LI</a>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                           <div className="bg-gray-800/50 rounded-lg p-4">
                             <div className="flex items-center gap-2 mb-2">
@@ -344,21 +400,28 @@ export default function HVTPage() {
                             {s?.competitors && s.competitors.length > 0 ? (
                               <div className="space-y-2">
                                 {s.competitors.map((comp, idx) => (
-                                  <div key={idx} className="group relative border-l-2 border-gray-700 pl-3">
+                                  <div key={idx} className="border-l-2 border-gray-700 pl-3">
                                     <div className="flex items-center gap-2">
                                       <span className="text-sm text-gray-200 font-medium">{comp.name}</span>
-                                      <span className={`text-[9px] px-1 py-0.5 rounded ${
-                                        comp.source === "website_positioning" ? "bg-purple-900/50 text-purple-300" :
-                                        comp.source === "google_ads" ? "bg-amber-900/50 text-amber-300" :
-                                        comp.source === "market_overlap" ? "bg-blue-900/50 text-blue-300" :
-                                        "bg-gray-700 text-gray-400"
-                                      }`} title={`Source: ${comp.source}`}>{comp.source.replace("_", " ")}</span>
+                                      <span className={`text-[9px] px-1 py-0.5 rounded ${comp.source === "website_positioning" ? "bg-purple-900/50 text-purple-300" : comp.source === "google_ads" ? "bg-amber-900/50 text-amber-300" : comp.source === "market_overlap" ? "bg-blue-900/50 text-blue-300" : "bg-gray-700 text-gray-400"}`}>{comp.source.replace("_", " ")}</span>
                                     </div>
                                     <p className="text-xs text-gray-500 mt-0.5">{comp.rationale}</p>
                                   </div>
                                 ))}
                               </div>
                             ) : (<p className="text-sm text-gray-500 italic">No competitors identified yet.</p>)}
+                            {(paidSeoComps && paidSeoComps.length > 0) && (
+                              <div className="mt-3 pt-3 border-t border-gray-700">
+                                <span className="text-[10px] text-gray-500 block mb-1">SEO Competitors (Paid)</span>
+                                <div className="flex flex-wrap gap-1">{paidSeoComps.slice(0, 5).map((c, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 bg-amber-900/30 text-amber-300 rounded">{c.trim()}</span>)}</div>
+                              </div>
+                            )}
+                            {(organicSeoComps && organicSeoComps.length > 0) && (
+                              <div className="mt-2">
+                                <span className="text-[10px] text-gray-500 block mb-1">SEO Competitors (Organic)</span>
+                                <div className="flex flex-wrap gap-1">{organicSeoComps.slice(0, 5).map((c, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 bg-blue-900/30 text-blue-300 rounded">{c.trim()}</span>)}</div>
+                              </div>
+                            )}
                           </div>
                           <div className="bg-gray-800/50 rounded-lg p-4">
                             <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Latest Website Change</h4>
@@ -383,9 +446,247 @@ export default function HVTPage() {
                             ) : (<p className="text-sm text-gray-500 italic">No recent LinkedIn activity.</p>)}
                           </div>
                         </div>
+
+                        {/* Row 2: Crust Data Enrichment - only show if enriched */}
+                        {cd ? (
+                          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 pl-6">
+                            {/* Panel 1: Headcount Over Time + Role Breakdown */}
+                            <div className="bg-gray-800/50 rounded-lg p-4">
+                              <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Headcount Breakdown</h4>
+                              {hcTimeseries && hcTimeseries.length > 0 && (
+                                <div className="mb-3">
+                                  <span className="text-[10px] text-gray-500 block mb-1">Historical Headcount</span>
+                                  <Sparkline data={hcTimeseries.map(t => (t.headcount || t.value || 0) as number)} color="#34d399" />
+                                  <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
+                                    <span>{hcTimeseries[0]?.date as string || ""}</span>
+                                    <span>{hcTimeseries[hcTimeseries.length - 1]?.date as string || ""}</span>
+                                  </div>
+                                </div>
+                              )}
+                              {rolePercent && Object.keys(rolePercent).length > 0 && (
+                                <div>
+                                  <span className="text-[10px] text-gray-500 block mb-1">Role Breakdown (%)</span>
+                                  {Object.entries(rolePercent).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([role, pct]) => (
+                                    <div key={role} className="flex items-center gap-2 mt-1">
+                                      <span className="text-[10px] text-gray-400 w-24 truncate">{role}</span>
+                                      <MiniBar value={pct} max={Math.max(...Object.values(rolePercent))} color="bg-emerald-500" />
+                                      <span className="text-[10px] text-gray-500 w-10 text-right">{pct.toFixed(0)}%</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {roleSixMo && Object.keys(roleSixMo).length > 0 && (
+                                <div className="mt-3 pt-3 border-t border-gray-700">
+                                  <span className="text-[10px] text-gray-500 block mb-1">6M Growth by Department</span>
+                                  {Object.entries(roleSixMo).filter(([, v]) => v !== null).map(([dept, growth]) => (
+                                    <div key={dept} className="flex items-center justify-between mt-1">
+                                      <span className="text-[10px] text-gray-400 capitalize">{dept.replace("_", " ")}</span>
+                                      <span className={`text-[10px] font-medium ${(growth as number) > 0 ? "text-emerald-400" : (growth as number) < 0 ? "text-red-400" : "text-gray-500"}`}>
+                                        {(growth as number) > 0 ? "+" : ""}{(growth as number).toFixed(0)}%
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Panel 2: Web Traffic */}
+                            <div className="bg-gray-800/50 rounded-lg p-4">
+                              <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Web Traffic</h4>
+                              {wt && (
+                                <>
+                                  <div className="flex items-baseline gap-2 mb-2">
+                                    <span className="text-xl font-bold text-white">{((wt.monthly_visitors as number) || 0).toLocaleString()}</span>
+                                    <span className="text-xs text-gray-500">monthly visitors</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 mb-3">
+                                    <span className={`text-xs font-medium ${(wt.monthly_visitor_qoq_pct as number) > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                      {(wt.monthly_visitor_qoq_pct as number) > 0 ? "+" : ""}{(wt.monthly_visitor_qoq_pct as number)?.toFixed(1)}% QoQ
+                                    </span>
+                                    <span className={`text-xs font-medium ${(wt.monthly_visitor_mom_pct as number) > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                      {(wt.monthly_visitor_mom_pct as number) > 0 ? "+" : ""}{(wt.monthly_visitor_mom_pct as number)?.toFixed(1)}% MoM
+                                    </span>
+                                  </div>
+                                  {wtTimeseries && wtTimeseries.length > 0 && (
+                                    <div className="mb-3">
+                                      <Sparkline data={wtTimeseries.map(t => (t.monthly_visitors || t.value || 0) as number)} color="#60a5fa" />
+                                      <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
+                                        <span>{wtTimeseries[0]?.date as string || ""}</span>
+                                        <span>{wtTimeseries[wtTimeseries.length - 1]?.date as string || ""}</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                  <span className="text-[10px] text-gray-500 block mb-1">Traffic Sources</span>
+                                  {[
+                                    ["Direct", wt.traffic_source_direct_pct, "bg-blue-500"],
+                                    ["Search", wt.traffic_source_search_pct, "bg-emerald-500"],
+                                    ["Social", wt.traffic_source_social_pct, "bg-purple-500"],
+                                    ["Paid", wt.traffic_source_paid_referral_pct, "bg-amber-500"],
+                                    ["Referral", wt.traffic_source_referral_pct, "bg-cyan-500"],
+                                  ].filter(([, v]) => v != null).map(([label, pct, color]) => (
+                                    <div key={label as string} className="flex items-center gap-2 mt-1">
+                                      <span className="text-[10px] text-gray-400 w-14">{label as string}</span>
+                                      <MiniBar value={pct as number} max={100} color={color as string} />
+                                      <span className="text-[10px] text-gray-500 w-10 text-right">{(pct as number).toFixed(1)}%</span>
+                                    </div>
+                                  ))}
+                                </>
+                              )}
+                            </div>
+
+                            {/* Panel 3: Funding & Investors */}
+                            <div className="bg-gray-800/50 rounded-lg p-4">
+                              <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Funding & Investors</h4>
+                              {funding && (
+                                <>
+                                  <div className="space-y-2 mb-3">
+                                    <div className="flex justify-between">
+                                      <span className="text-xs text-gray-500">Total Raised</span>
+                                      <span className="text-sm font-medium text-white">{formatMoney(funding.crunchbase_total_investment_usd as number)}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-xs text-gray-500">Last Round</span>
+                                      <span className="text-xs text-gray-300 capitalize">{(funding.last_funding_round_type as string) || "\u2014"}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-xs text-gray-500">Last Round Size</span>
+                                      <span className="text-xs text-gray-300">{formatMoney(funding.last_funding_round_investment_usd as number)}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-xs text-gray-500">Days Since Raise</span>
+                                      <span className="text-xs text-gray-300">{funding.days_since_last_fundraise != null ? `${funding.days_since_last_fundraise}d` : "\u2014"}</span>
+                                    </div>
+                                  </div>
+                                  {funding.crunchbase_investors && (
+                                    <div>
+                                      <span className="text-[10px] text-gray-500 block mb-1">Investors</span>
+                                      <div className="flex flex-wrap gap-1">
+                                        {(funding.crunchbase_investors as string[]).map((inv, i) => (
+                                          <span key={i} className="text-[10px] px-1.5 py-0.5 bg-gray-700 text-gray-300 rounded">{inv}</span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {fundingMilestones && fundingMilestones.length > 0 && (
+                                    <div className="mt-3 pt-3 border-t border-gray-700">
+                                      <span className="text-[10px] text-gray-500 block mb-1">Funding History</span>
+                                      {fundingMilestones.slice(0, 5).map((m, i) => (
+                                        <div key={i} className="flex justify-between text-[10px] mt-1">
+                                          <span className="text-gray-400">{(m.date as string) || ""}</span>
+                                          <span className="text-gray-300 capitalize">{(m.round_type as string) || ""}</span>
+                                          <span className="text-gray-300">{formatMoney(m.investment_usd as number)}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                              {!funding && <p className="text-sm text-gray-500 italic">No funding data available.</p>}
+                              {/* Founder Education */}
+                              {founders && (
+                                <div className="mt-3 pt-3 border-t border-gray-700">
+                                  <span className="text-[10px] text-gray-500 block mb-1">Founder Background</span>
+                                  {(founders.founders_education_institute as string[])?.map((school, i) => (
+                                    <div key={i} className="flex items-center gap-2 mt-1">
+                                      <span className="text-[10px] text-gray-300">{school}</span>
+                                      {(founders.founders_degree_name as string[])?.[i] && (
+                                        <span className="text-[9px] text-gray-500">({(founders.founders_degree_name as string[])[i]})</span>
+                                      )}
+                                    </div>
+                                  ))}
+                                  {(founders.founders_previous_companies as string[]) && (
+                                    <div className="mt-2">
+                                      <span className="text-[10px] text-gray-500 block mb-0.5">Previous Companies</span>
+                                      <div className="flex flex-wrap gap-1">
+                                        {(founders.founders_previous_companies as string[]).slice(0, 6).map((c, i) => (
+                                          <span key={i} className="text-[9px] px-1.5 py-0.5 bg-gray-700 text-gray-400 rounded">{c}</span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Panel 4: SEO & Paid Search */}
+                            <div className="bg-gray-800/50 rounded-lg p-4">
+                              <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">SEO & Paid Search</h4>
+                              {seoData && (
+                                <div className="space-y-2">
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-gray-500">Google Ads Budget</span>
+                                    <span className="text-sm font-medium text-amber-400">{seoData.monthly_google_ads_budget != null ? `$${((seoData.monthly_google_ads_budget as number)).toLocaleString()}/mo` : "\u2014"}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-gray-500">Paid Clicks</span>
+                                    <span className="text-xs text-gray-300">{seoData.monthly_paid_clicks != null ? `${(seoData.monthly_paid_clicks as number).toLocaleString()}/mo` : "\u2014"}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-gray-500">Organic Clicks</span>
+                                    <span className="text-xs text-gray-300">{seoData.monthly_organic_clicks != null ? `${(seoData.monthly_organic_clicks as number).toLocaleString()}/mo` : "\u2014"}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-gray-500">Organic Value</span>
+                                    <span className="text-xs text-gray-300">{seoData.monthly_organic_value != null ? `$${((seoData.monthly_organic_value as number)).toLocaleString()}/mo` : "\u2014"}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-gray-500">Ads Running</span>
+                                    <span className="text-xs text-gray-300">{seoData.total_ads_purchased != null ? (seoData.total_ads_purchased as number) : "\u2014"}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-gray-500">Organic Rankings</span>
+                                    <span className="text-xs text-gray-300">{seoData.total_organic_results != null ? (seoData.total_organic_results as number).toLocaleString() : "\u2014"}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-xs text-gray-500">Avg Organic Rank</span>
+                                    <span className="text-xs text-gray-300">{seoData.average_seo_organic_rank != null ? `#${(seoData.average_seo_organic_rank as number).toFixed(1)}` : "\u2014"}</span>
+                                  </div>
+                                  {seoData.newly_ranked_seo_keywords != null && (
+                                    <div className="mt-2 pt-2 border-t border-gray-700 flex justify-between">
+                                      <span className="text-[10px] text-gray-500">New Keywords</span>
+                                      <span className="text-[10px] text-emerald-400">+{seoData.newly_ranked_seo_keywords as number}</span>
+                                    </div>
+                                  )}
+                                  {seoData.gained_ranked_seo_keywords != null && (
+                                    <div className="flex justify-between">
+                                      <span className="text-[10px] text-gray-500">Gained Rankings</span>
+                                      <span className="text-[10px] text-emerald-400">+{seoData.gained_ranked_seo_keywords as number}</span>
+                                    </div>
+                                  )}
+                                  {seoData.lost_ranked_seo_keywords != null && (
+                                    <div className="flex justify-between">
+                                      <span className="text-[10px] text-gray-500">Lost Rankings</span>
+                                      <span className="text-[10px] text-red-400">-{seoData.lost_ranked_seo_keywords as number}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {!seoData && <p className="text-sm text-gray-500 italic">No SEO data available.</p>}
+                              {/* Revenue Estimate */}
+                              {cd?.estimated_revenue_lower_bound_usd != null && (
+                                <div className="mt-3 pt-3 border-t border-gray-700">
+                                  <span className="text-[10px] text-gray-500 block mb-1">Estimated Revenue</span>
+                                  <span className="text-sm text-white font-medium">
+                                    {formatMoney(cd.estimated_revenue_lower_bound_usd as number)} - {formatMoney(cd.estimated_revenue_higher_bound_usd as number)}
+                                  </span>
+                                </div>
+                              )}
+                              {s?.crustdata_enriched_at && (
+                                <div className="mt-3 pt-3 border-t border-gray-700">
+                                  <span className="text-[9px] text-gray-600">Crust Data enriched {timeAgo(s.crustdata_enriched_at)}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="pl-6 mt-2">
+                            <p className="text-xs text-gray-500 italic">No Crust Data enrichment yet. Run Script 5 to enrich HVT companies.</p>
+                          </div>
+                        )}
                       </td>
                     </tr>
-                  )}
+                    );
+                  })()}
                 </tbody>
               );
             })}
