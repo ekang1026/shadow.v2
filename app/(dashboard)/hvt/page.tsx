@@ -231,7 +231,7 @@ export default function HVTPage() {
 
   const formatGrowth = (growth: number | null) => {
     if (growth === null || growth === undefined) return "\u2014";
-    const pct = (growth * 100).toFixed(0);
+    const pct = growth.toFixed(0);
     const isPositive = growth > 0;
     return (
       <span className={isPositive ? "text-emerald-400" : "text-red-400"}>
