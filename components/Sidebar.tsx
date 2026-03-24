@@ -91,8 +91,9 @@ export default function Sidebar() {
           }`}
           title={collapsed ? "Sign Out" : undefined}
         >
-          <span className="text-base">↩</span>
+          <span className={`${collapsed ? "text-lg" : "text-base"}`} title="Sign Out">🚪</span>
           {!collapsed && "Sign Out"}
+          {collapsed && <span className="sr-only">Sign Out</span>}
         </button>
       </div>
     </aside>

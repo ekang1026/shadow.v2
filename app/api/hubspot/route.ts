@@ -1,5 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { config } from "dotenv";
+import { join } from "path";
+
+config({ path: join(process.cwd(), ".env.local"), override: true });
 
 export const dynamic = "force-dynamic";
 

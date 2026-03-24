@@ -2,8 +2,15 @@ import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import Anthropic from "@anthropic-ai/sdk";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { config } from "dotenv";
+
+// Manually load .env.local since Turbopack may not load it for API routes
+const envPath = join(process.cwd(), ".env.local");
+if (existsSync(envPath)) {
+  config({ path: envPath, override: true });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -326,8 +333,9 @@ export async function POST(request: NextRequest) {
     .replace(/\{target_domain\}/g, websiteUrl || "unknown");
 
   // Call Claude to generate the email
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const anthropic = new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY,
+    apiKey: anthropicKey,
   });
 
   try {
