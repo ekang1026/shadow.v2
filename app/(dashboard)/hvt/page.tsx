@@ -56,6 +56,34 @@ interface HVTCompany {
   }[];
 }
 
+interface HubSpotEmail {
+  date: string;
+  subject: string;
+  direction: string;
+  sender: string;
+  recipient: string;
+  opens: number;
+  isFirstOutreach: boolean;
+}
+
+interface HubSpotMeeting {
+  date: string;
+  title: string;
+}
+
+interface HubSpotEngagement {
+  companyId: string;
+  companyName: string;
+  contacts: { name: string; email: string; title: string }[];
+  emails: HubSpotEmail[];
+  meetings: HubSpotMeeting[];
+  totalEmails: number;
+  totalOpens: number;
+  totalMeetings: number;
+  firstOutreachDate: string | null;
+  lastActivityDate: string | null;
+}
+
 function formatMoney(amount: number | null | undefined): string {
   if (amount === null || amount === undefined) return "\u2014";
   if (amount >= 1_000_000_000) return `$${(amount / 1_000_000_000).toFixed(1)}B`;
@@ -88,6 +116,8 @@ export default function HVTPage() {
   const [addUrl, setAddUrl] = useState("");
   const [adding, setAdding] = useState(false);
   const [addStatus, setAddStatus] = useState<string | null>(null);
+  const [hubspotData, setHubspotData] = useState<Record<string, HubSpotEngagement>>({});
+  const [loadingHubspot, setLoadingHubspot] = useState<Set<string>>(new Set());
 
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
@@ -174,6 +204,30 @@ export default function HVTPage() {
       setAdding(false);
     }
   };
+
+  const fetchHubspot = useCallback(async (companyId: string) => {
+    if (hubspotData[companyId] || loadingHubspot.has(companyId)) return;
+    setLoadingHubspot((prev) => new Set(prev).add(companyId));
+    try {
+      const res = await fetch(`/api/hubspot?companyId=${companyId}`);
+      const data = await res.json();
+      if (data && !data.error) {
+        setHubspotData((prev) => ({ ...prev, [companyId]: data }));
+      }
+    } catch (err) {
+      console.error("HubSpot fetch failed:", err);
+    } finally {
+      setLoadingHubspot((prev) => { const next = new Set(prev); next.delete(companyId); return next; });
+    }
+  }, [hubspotData, loadingHubspot]);
+
+  const handleToggleExpand = useCallback((id: string) => {
+    setExpandedId((prev) => {
+      const newId = prev === id ? null : id;
+      if (newId) fetchHubspot(newId);
+      return newId;
+    });
+  }, [fetchHubspot]);
 
   const formatGrowth = (growth: number | null) => {
     if (growth === null || growth === undefined) return "\u2014";
@@ -287,7 +341,7 @@ export default function HVTPage() {
               return (
                 <tbody key={company.id}>
                   <tr className={`border-b border-gray-800/50 transition-all duration-200 cursor-pointer ${isSelected ? "bg-blue-900/20" : isExpanded ? "bg-gray-900/50" : "hover:bg-gray-900/30"}`}
-                    onClick={() => setExpandedId(isExpanded ? null : company.id)}>
+                    onClick={() => handleToggleExpand(company.id)}>
                     <td className="py-3 px-3" onClick={(e) => e.stopPropagation()}>
                       <input type="checkbox" className="rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500 cursor-pointer" checked={isSelected} onChange={() => toggleSelect(company.id)} />
                     </td>
@@ -432,8 +486,73 @@ export default function HVTPage() {
                             )}
                           </div>
                           <div className="bg-gray-800/50 rounded-lg p-4">
-                            <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Latest Website Change</h4>
-                            {company.latest_website_change ? (<><p className="text-sm text-gray-300 leading-relaxed">{company.latest_website_change.change_summary || "Change detected but no summary."}</p><p className="text-xs text-gray-500 mt-2">Detected {timeAgo(company.latest_website_change.checked_at)}</p></>) : (<p className="text-sm text-gray-500 italic">No website changes detected yet.</p>)}
+                            <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Engagement History</h4>
+                            {loadingHubspot.has(company.id) ? (
+                              <div className="flex items-center gap-2">
+                                <span className="inline-block w-3 h-3 border-2 border-blue-300 border-t-transparent rounded-full animate-spin" />
+                                <span className="text-xs text-gray-500">Loading HubSpot data...</span>
+                              </div>
+                            ) : hubspotData[company.id] ? (() => {
+                              const hs = hubspotData[company.id];
+                              return (
+                                <div className="space-y-2">
+                                  {/* Summary stats */}
+                                  <div className="flex gap-4 mb-3">
+                                    <div className="text-center">
+                                      <span className="text-lg font-bold text-white block">{hs.totalEmails}</span>
+                                      <span className="text-[10px] text-gray-500">Emails</span>
+                                    </div>
+                                    <div className="text-center">
+                                      <span className="text-lg font-bold text-white block">{hs.totalOpens}</span>
+                                      <span className="text-[10px] text-gray-500">Opens</span>
+                                    </div>
+                                    <div className="text-center">
+                                      <span className="text-lg font-bold text-white block">{hs.totalMeetings}</span>
+                                      <span className="text-[10px] text-gray-500">Meetings</span>
+                                    </div>
+                                  </div>
+                                  {/* Email timeline */}
+                                  <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                                    {hs.emails.slice(-15).map((email, i) => (
+                                      <div key={i} className={`flex items-start gap-2 text-[10px] ${email.isFirstOutreach ? "bg-blue-900/20 rounded px-1.5 py-1 border-l-2 border-blue-500" : ""}`}>
+                                        <span className="text-gray-600 whitespace-nowrap min-w-[60px]">{email.date?.slice(0, 10)}</span>
+                                        <span className={`whitespace-nowrap ${email.direction === "INCOMING_EMAIL" ? "text-emerald-400" : "text-gray-400"}`}>
+                                          {email.direction === "INCOMING_EMAIL" ? "← Reply" : "→ Sent"}
+                                        </span>
+                                        <span className="text-gray-300 truncate flex-1" title={email.subject}>{email.subject}</span>
+                                        {email.opens > 0 && (
+                                          <span className="text-amber-400 whitespace-nowrap" title={`Opened ${email.opens} time${email.opens > 1 ? "s" : ""}`}>
+                                            👁 {email.opens}
+                                          </span>
+                                        )}
+                                        {email.isFirstOutreach && (
+                                          <span className="text-[9px] px-1 py-0.5 bg-blue-900/50 text-blue-300 rounded whitespace-nowrap">1st</span>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {/* Meetings */}
+                                  {hs.meetings.length > 0 && (
+                                    <div className="mt-2 pt-2 border-t border-gray-700">
+                                      <span className="text-[10px] text-gray-500 block mb-1">Meetings</span>
+                                      {hs.meetings.map((m, i) => (
+                                        <div key={i} className="flex items-center gap-2 text-[10px] mt-0.5">
+                                          <span className="text-gray-600">{m.date?.slice(0, 10)}</span>
+                                          <span className="text-gray-300">{m.title}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {hs.firstOutreachDate && (
+                                    <div className="mt-2 pt-2 border-t border-gray-700">
+                                      <span className="text-[9px] text-gray-600">First outreach: {hs.firstOutreachDate.slice(0, 10)} · Last activity: {hs.lastActivityDate?.slice(0, 10)}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })() : (
+                              <p className="text-sm text-gray-500 italic">No HubSpot data available.</p>
+                            )}
                           </div>
                           <div className="bg-gray-800/50 rounded-lg p-4">
                             <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Market & TAM</h4>
