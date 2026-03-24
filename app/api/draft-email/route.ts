@@ -179,12 +179,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "companyId required" }, { status: 400 });
   }
 
-  // Get Google access token from cookie
+  // Get Google access token — try cookie first, then try refreshing via Supabase session
   const cookieStore = await cookies();
-  const googleToken = cookieStore.get("google_access_token")?.value;
+  let googleToken = cookieStore.get("google_access_token")?.value;
+
+  if (!googleToken) {
+    // Try to get a fresh token from Supabase session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.provider_token) {
+      googleToken = session.provider_token;
+      console.log("[Draft] Got fresh provider token from Supabase session");
+    } else if (session?.provider_refresh_token || cookieStore.get("google_refresh_token")?.value) {
+      // Try refreshing the session to get a new provider token
+      const { data: refreshData } = await supabase.auth.refreshSession();
+      if (refreshData?.session?.provider_token) {
+        googleToken = refreshData.session.provider_token;
+        console.log("[Draft] Got refreshed provider token");
+      }
+    }
+  }
+
   if (!googleToken) {
     return NextResponse.json(
-      { error: "Google access token not found. Please sign out and sign back in to grant Gmail permissions." },
+      { error: "Google access token expired. Please sign out and sign back in to grant Gmail permissions." },
       { status: 401 }
     );
   }
