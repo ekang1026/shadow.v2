@@ -73,7 +73,6 @@ interface ColumnDef {
 }
 
 const PASSED_COLUMNS: ColumnDef[] = [
-  { id: "index", label: "#", defaultWidth: 48, minWidth: 36, align: "left" },
   { id: "name", label: "Company", defaultWidth: 200, minWidth: 120, align: "left", sortKey: "name" },
   { id: "founded", label: "Founded", defaultWidth: 90, minWidth: 60, align: "left", sortKey: "founded" },
   { id: "hqCity", label: "HQ City", defaultWidth: 120, minWidth: 70, align: "left", sortKey: "hq" },
@@ -87,7 +86,6 @@ const PASSED_COLUMNS: ColumnDef[] = [
 ];
 
 const FAILED_COLUMNS: ColumnDef[] = [
-  { id: "index", label: "#", defaultWidth: 48, minWidth: 36, align: "left" },
   { id: "name", label: "Company", defaultWidth: 200, minWidth: 120, align: "left", sortKey: "name" },
   { id: "founded", label: "Founded", defaultWidth: 90, minWidth: 60, align: "left", sortKey: "founded" },
   { id: "hqCity", label: "HQ City", defaultWidth: 120, minWidth: 70, align: "left", sortKey: "hq" },
@@ -327,23 +325,21 @@ function renderCell(
   };
 
   switch (colId) {
-    case "index":
-      return <td key={colId} className="py-3 px-4 text-gray-600 tabular-nums">{index + 1}</td>;
-
     case "name":
       return (
         <td key={colId} className="py-3 px-4">
           <div className="flex items-center gap-2">
+            <span className="text-gray-500 text-xs mr-1 select-none">{expandedRow === company.id ? "\u25BE" : "\u25B8"}</span>
             {s?.website ? (
-              <a href={s.website.startsWith("http") ? s.website : `https://${s.website}`} target="_blank" rel="noopener noreferrer" className="text-white font-medium hover:text-blue-400 transition-colors">{s?.name || "Unknown"}</a>
+              <a href={s.website.startsWith("http") ? s.website : `https://${s.website}`} target="_blank" rel="noopener noreferrer" className="text-white font-medium hover:text-blue-400 transition-colors" onClick={(e) => e.stopPropagation()}>{s?.name || "Unknown"}</a>
             ) : (
               <span className="text-white font-medium">{s?.name || "Unknown"}</span>
             )}
             {s?.pitchbook_url && (
-              <a href={s.pitchbook_url} target="_blank" rel="noopener noreferrer" className="px-1 py-0.5 text-[10px] font-bold rounded bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white transition-colors" title="View on PitchBook">PB</a>
+              <a href={s.pitchbook_url} target="_blank" rel="noopener noreferrer" className="px-1 py-0.5 text-[10px] font-bold rounded bg-gray-700 text-gray-300 hover:bg-gray-600 hover:text-white transition-colors" title="View on PitchBook" onClick={(e) => e.stopPropagation()}>PB</a>
             )}
             {s?.linkedin_url && (
-              <a href={s.linkedin_url} target="_blank" rel="noopener noreferrer" className="px-1 py-0.5 text-[10px] font-bold rounded bg-gray-700 text-blue-400 hover:bg-gray-600 hover:text-blue-300 transition-colors" title="View on LinkedIn">LI</a>
+              <a href={s.linkedin_url} target="_blank" rel="noopener noreferrer" className="px-1 py-0.5 text-[10px] font-bold rounded bg-gray-700 text-blue-400 hover:bg-gray-600 hover:text-blue-300 transition-colors" title="View on LinkedIn" onClick={(e) => e.stopPropagation()}>LI</a>
             )}
             {company.review_count > 0 && (
               <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-gray-700 text-gray-300 text-xs font-medium" title={`Reviewed ${company.review_count} time${company.review_count === 1 ? "" : "s"} before`}>{company.review_count}</span>
@@ -517,7 +513,11 @@ function CompanyRow({
         const seoData = cd?.seo as Record<string, unknown> | null;
         const dms = cd?.decision_makers as Array<Record<string, unknown>> | null;
         const competitors_cd = cd?.competitors as Record<string, unknown> | null;
+        const hcTimeseries = hc?.linkedin_headcount_timeseries as Array<Record<string, unknown>> | null;
+        const wtTimeseries = wt?.monthly_visitors_timeseries as Array<Record<string, unknown>> | null;
         const rolePercent = hc?.linkedin_headcount_by_role_percent as Record<string, number> | null;
+        const roleSixMo = hc?.linkedin_headcount_by_role_six_months_growth_percent as Record<string, number> | null;
+        const fundingMilestones = funding?.funding_milestones_timeseries as Array<Record<string, unknown>> | null;
         const paidSeoComps = competitors_cd?.paid_seo_competitors_website_domains as string[] | null;
         const organicSeoComps = competitors_cd?.organic_seo_competitors_website_domains as string[] | null;
 
@@ -526,13 +526,20 @@ function CompanyRow({
             <div className={`${color} h-1.5 rounded-full`} style={{ width: `${Math.min(100, (value / max) * 100)}%` }} />
           </div>
         );
+        const Sparkline = ({ data, color = "#60a5fa" }: { data: number[]; color?: string }) => {
+          if (!data || data.length < 2) return null;
+          const min = Math.min(...data); const max = Math.max(...data); const range = max - min || 1;
+          const w = 200; const h = 40;
+          const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * h}`).join(" ");
+          return <svg width={w} height={h} className="overflow-visible"><polyline fill="none" stroke={color} strokeWidth="1.5" points={points} /></svg>;
+        };
 
         return (
         <tr className="bg-gray-900/60">
           <td colSpan={totalCols} className="py-4 px-6">
-            {/* Row 1: Core Info */}
+            {/* Row 1: Core Info — 4 panels */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-4">
-              {/* What They Do + Survey Details */}
+              {/* Panel 1: What They Do + Leadership */}
               <div className="bg-gray-800/50 rounded-lg p-4">
                 <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">What They Do</h4>
                 <p className="text-sm text-gray-300 leading-relaxed">{s.what_they_do || s.pb_description || "\u2014"}</p>
@@ -540,9 +547,7 @@ function CompanyRow({
                   <div><span className="text-gray-500 block">Offering</span><span className="text-gray-300">{s.offering_type?.join(", ") || "\u2014"}</span></div>
                   <div><span className="text-gray-500 block">Customer</span><span className="text-gray-300">{s.customer_type?.join(", ") || "\u2014"}</span></div>
                   <div><span className="text-gray-500 block">Revenue</span><span className="text-gray-300">{s.revenue_model?.join(", ") || "\u2014"}</span></div>
-                  <div><span className="text-gray-500 block">Product</span><span className="text-gray-300">{s.product_category || "\u2014"}</span></div>
                   <div><span className="text-gray-500 block">Market</span><span className="text-gray-300">{s.market_focus || "\u2014"}{s.vertical_type ? ` (${s.vertical_type})` : ""}</span></div>
-                  <div><span className="text-gray-500 block">NAICS</span><span className="text-gray-300">{s.naics_3digit_name || "\u2014"}</span></div>
                   {s.agentic_features_present && <div><span className="text-gray-500 block">Agentic</span><span className="text-emerald-400">{s.agentic_feature_types?.join(", ") || "Yes"}</span></div>}
                   {s.success_indicators_present && <div><span className="text-gray-500 block">Traction</span><span className="text-emerald-400">Yes</span></div>}
                 </div>
@@ -555,7 +560,7 @@ function CompanyRow({
                 {dms && dms.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-gray-700">
                     <span className="text-[10px] text-gray-500 block mb-1">Leadership</span>
-                    {dms.slice(0, 4).map((dm, i) => (
+                    {dms.slice(0, 5).map((dm, i) => (
                       <div key={i} className="flex items-center gap-1 mt-0.5 flex-wrap">
                         <span className="text-[10px] text-gray-300">{dm.name as string}</span>
                         <span className="text-[9px] text-gray-500">{dm.title as string}</span>
@@ -567,7 +572,58 @@ function CompanyRow({
                 )}
               </div>
 
-              {/* Market & TAM */}
+              {/* Panel 2: Competitors */}
+              <div className="bg-gray-800/50 rounded-lg p-4">
+                <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Competitors</h4>
+                {s.competitors && s.competitors.length > 0 ? (
+                  <div className="space-y-2">
+                    {s.competitors.map((comp: {name:string;source:string;rationale:string}, idx: number) => (
+                      <div key={idx} className="border-l-2 border-gray-700 pl-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-gray-200 font-medium">{comp.name}</span>
+                          <span className={`text-[9px] px-1 py-0.5 rounded ${comp.source === "website_positioning" ? "bg-purple-900/50 text-purple-300" : comp.source === "market_overlap" ? "bg-blue-900/50 text-blue-300" : "bg-gray-700 text-gray-400"}`}>{comp.source?.replace("_", " ")}</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">{comp.rationale}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-sm text-gray-500 italic">No competitors identified.</p>}
+                {(paidSeoComps && paidSeoComps.length > 0) && (
+                  <div className="mt-3 pt-3 border-t border-gray-700">
+                    <span className="text-[10px] text-gray-500 block mb-1">SEO Competitors (Paid)</span>
+                    <div className="flex flex-wrap gap-1">{paidSeoComps.slice(0, 5).map((c, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 bg-amber-900/30 text-amber-300 rounded">{c.trim()}</span>)}</div>
+                  </div>
+                )}
+                {(organicSeoComps && organicSeoComps.length > 0) && (
+                  <div className="mt-2">
+                    <span className="text-[10px] text-gray-500 block mb-1">SEO Competitors (Organic)</span>
+                    <div className="flex flex-wrap gap-1">{organicSeoComps.slice(0, 5).map((c, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 bg-blue-900/30 text-blue-300 rounded">{c.trim()}</span>)}</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Panel 3: Survey Details (replaces Engagement History for non-HVT) */}
+              <div className="bg-gray-800/50 rounded-lg p-4">
+                <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Survey Details</h4>
+                <div className="space-y-2 text-[10px]">
+                  <div><span className="text-gray-500 block">NAICS</span><span className="text-gray-300">{s.naics_3digit_code} {s.naics_3digit_name || "\u2014"}</span></div>
+                  <div><span className="text-gray-500 block">Product Category</span><span className="text-gray-300">{s.product_category || "\u2014"}</span></div>
+                  {s.success_indicators && s.success_indicators.length > 0 && (
+                    <div><span className="text-gray-500 block">Success Signals</span><span className="text-gray-300">{s.success_indicators.join("; ")}</span></div>
+                  )}
+                  {s.disfavored_vertical && (
+                    <div><span className="text-red-400 font-medium">Disfavored: {s.disfavored_vertical}</span></div>
+                  )}
+                  {s.pb_description && s.pb_description !== s.what_they_do && (
+                    <div className="mt-2 pt-2 border-t border-gray-700">
+                      <span className="text-gray-500 block mb-0.5">PitchBook Description</span>
+                      <span className="text-gray-400">{s.pb_description}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Panel 4: Market & TAM */}
               <div className="bg-gray-800/50 rounded-lg p-4">
                 <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Market & TAM</h4>
                 {s.icp_description ? (
@@ -597,129 +653,155 @@ function CompanyRow({
                     )}
                   </div>
                 ) : <p className="text-sm text-gray-500 italic">No market data yet.</p>}
-                {/* Competitors */}
-                {((paidSeoComps && paidSeoComps.length > 0) || (organicSeoComps && organicSeoComps.length > 0)) && (
-                  <div className="mt-3 pt-3 border-t border-gray-700">
-                    <span className="text-[10px] text-gray-500 block mb-1">SEO Competitors</span>
-                    <div className="flex flex-wrap gap-1">
-                      {(paidSeoComps || []).slice(0, 4).map((c, i) => <span key={`p${i}`} className="text-[10px] px-1.5 py-0.5 bg-amber-900/30 text-amber-300 rounded">{c.trim()}</span>)}
-                      {(organicSeoComps || []).slice(0, 4).map((c, i) => <span key={`o${i}`} className="text-[10px] px-1.5 py-0.5 bg-blue-900/30 text-blue-300 rounded">{c.trim()}</span>)}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Headcount & Roles */}
-              <div className="bg-gray-800/50 rounded-lg p-4">
-                <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Team Breakdown</h4>
-                {rolePercent && Object.keys(rolePercent).length > 0 ? (
-                  <div>
-                    {Object.entries(rolePercent).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([role, pct]) => (
-                      <div key={role} className="flex items-center gap-2 mt-1.5">
-                        <span className="text-[10px] text-gray-400 w-24 truncate">{role}</span>
-                        <MiniBar value={pct} max={Math.max(...Object.values(rolePercent))} color="bg-emerald-500" />
-                        <span className="text-[10px] text-gray-500 w-10 text-right">{pct.toFixed(0)}%</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : <p className="text-sm text-gray-500 italic">No team data yet.</p>}
-                {/* Founder background */}
-                {founders && (founders.founders_education_institute || founders.founders_previous_companies) && (
-                  <div className="mt-3 pt-3 border-t border-gray-700">
-                    <span className="text-[10px] text-gray-500 block mb-1">Founder Background</span>
-                    {(() => {
-                      const schools = Array.isArray(founders.founders_education_institute)
-                        ? founders.founders_education_institute as string[]
-                        : founders.founders_education_institute ? [founders.founders_education_institute as string] : [];
-                      return schools.slice(0, 3).map((school, i) => (
-                        <div key={i} className="text-[10px] text-gray-300 mt-0.5">{school}</div>
-                      ));
-                    })()}
-                    {founders.founders_previous_companies && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {(Array.isArray(founders.founders_previous_companies)
-                          ? founders.founders_previous_companies as string[]
-                          : [founders.founders_previous_companies as string]
-                        ).slice(0, 5).map((c, i) => (
-                          <span key={i} className="text-[9px] px-1.5 py-0.5 bg-gray-700 text-gray-400 rounded">{c}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Web Traffic + SEO + Funding */}
-              <div className="bg-gray-800/50 rounded-lg p-4">
-                <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Digital & Funding</h4>
-                {wt ? (
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between">
-                      <span className="text-[10px] text-gray-500">Monthly Visitors</span>
-                      <span className="text-xs font-medium text-white">{((wt.monthly_visitors as number) || 0).toLocaleString()}</span>
-                    </div>
-                    {wt.monthly_visitor_qoq_pct != null && (
-                      <div className="flex justify-between">
-                        <span className="text-[10px] text-gray-500">QoQ Traffic</span>
-                        <span className={`text-xs ${(wt.monthly_visitor_qoq_pct as number) > 0 ? "text-emerald-400" : "text-red-400"}`}>
-                          {(wt.monthly_visitor_qoq_pct as number) > 0 ? "+" : ""}{(wt.monthly_visitor_qoq_pct as number).toFixed(1)}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ) : <p className="text-[10px] text-gray-500 italic">No web traffic data.</p>}
-                {seoData && (
-                  <div className="mt-2 pt-2 border-t border-gray-700 space-y-1.5">
-                    {seoData.monthly_google_ads_budget != null && (
-                      <div className="flex justify-between">
-                        <span className="text-[10px] text-gray-500">Google Ads</span>
-                        <span className="text-xs text-amber-400">${((seoData.monthly_google_ads_budget as number)).toLocaleString()}/mo</span>
-                      </div>
-                    )}
-                    {seoData.total_ads_purchased != null && (
-                      <div className="flex justify-between">
-                        <span className="text-[10px] text-gray-500">Active Ads</span>
-                        <span className="text-xs text-gray-300">{seoData.total_ads_purchased as number}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {funding && (
-                  <div className="mt-2 pt-2 border-t border-gray-700 space-y-1.5">
-                    <div className="flex justify-between">
-                      <span className="text-[10px] text-gray-500">Total Raised</span>
-                      <span className="text-xs font-medium text-white">{formatMoney(funding.crunchbase_total_investment_usd as number)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[10px] text-gray-500">Last Round</span>
-                      <span className="text-[10px] text-gray-300 capitalize">{(funding.last_funding_round_type as string) || "\u2014"}</span>
-                    </div>
-                    {funding.days_since_last_fundraise != null && (
-                      <div className="flex justify-between">
-                        <span className="text-[10px] text-gray-500">Days Since Raise</span>
-                        <span className="text-[10px] text-gray-300">{funding.days_since_last_fundraise as number}d</span>
-                      </div>
-                    )}
-                    {funding.crunchbase_investors && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {(funding.crunchbase_investors as string[]).slice(0, 4).map((inv, i) => (
-                          <span key={i} className="text-[9px] px-1.5 py-0.5 bg-gray-700 text-gray-300 rounded">{inv}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {!wt && !seoData && !funding && <p className="text-sm text-gray-500 italic">No enrichment data. Run Crust Data enrichment to populate.</p>}
-                {cd?.estimated_revenue_lower_bound_usd != null && (
-                  <div className="mt-2 pt-2 border-t border-gray-700">
-                    <div className="flex justify-between">
-                      <span className="text-[10px] text-gray-500">Est. Revenue</span>
-                      <span className="text-xs text-white">{formatMoney(cd.estimated_revenue_lower_bound_usd as number)} - {formatMoney(cd.estimated_revenue_higher_bound_usd as number)}</span>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
+
+            {/* Row 2: Crust Data Enrichment — 4 panels */}
+            {cd ? (
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                {/* Panel 5: Headcount Breakdown */}
+                <div className="bg-gray-800/50 rounded-lg p-4">
+                  <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Headcount Breakdown</h4>
+                  {hcTimeseries && hcTimeseries.length > 0 && (
+                    <div className="mb-3">
+                      <span className="text-[10px] text-gray-500 block mb-1">Historical Headcount</span>
+                      <Sparkline data={hcTimeseries.map(t => (t.employee_count || t.headcount || t.value || 0) as number)} color="#34d399" />
+                      <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
+                        <span>{hcTimeseries[0]?.date as string || ""}</span>
+                        <span>{hcTimeseries[hcTimeseries.length - 1]?.date as string || ""}</span>
+                      </div>
+                    </div>
+                  )}
+                  {rolePercent && Object.keys(rolePercent).length > 0 && (
+                    <div>
+                      <span className="text-[10px] text-gray-500 block mb-1">Role Breakdown (%)</span>
+                      {Object.entries(rolePercent).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([role, pct]) => (
+                        <div key={role} className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] text-gray-400 w-24 truncate">{role}</span>
+                          <MiniBar value={pct} max={Math.max(...Object.values(rolePercent))} color="bg-emerald-500" />
+                          <span className="text-[10px] text-gray-500 w-10 text-right">{pct.toFixed(0)}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {roleSixMo && typeof roleSixMo === 'object' && Object.keys(roleSixMo).length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-gray-700">
+                      <span className="text-[10px] text-gray-500 block mb-1">6M Growth by Department</span>
+                      {Object.entries(roleSixMo).filter(([, v]) => v !== null).map(([dept, growth]) => (
+                        <div key={dept} className="flex items-center justify-between mt-1">
+                          <span className="text-[10px] text-gray-400 capitalize">{dept.replace("_", " ")}</span>
+                          <span className={`text-[10px] font-medium ${(growth as number) > 0 ? "text-emerald-400" : (growth as number) < 0 ? "text-red-400" : "text-gray-500"}`}>
+                            {(growth as number) > 0 ? "+" : ""}{(growth as number).toFixed(0)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Panel 6: Web Traffic */}
+                <div className="bg-gray-800/50 rounded-lg p-4">
+                  <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Web Traffic</h4>
+                  {wt && (
+                    <>
+                      <div className="flex items-baseline gap-2 mb-2">
+                        <span className="text-xl font-bold text-white">{((wt.monthly_visitors as number) || 0).toLocaleString()}</span>
+                        <span className="text-xs text-gray-500">monthly visitors</span>
+                      </div>
+                      <div className="flex items-center gap-2 mb-3">
+                        {wt.monthly_visitor_qoq_pct != null && (
+                          <span className={`text-xs font-medium ${(wt.monthly_visitor_qoq_pct as number) > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                            {(wt.monthly_visitor_qoq_pct as number) > 0 ? "+" : ""}{(wt.monthly_visitor_qoq_pct as number).toFixed(1)}% QoQ
+                          </span>
+                        )}
+                        {wt.monthly_visitor_mom_pct != null && (
+                          <span className={`text-xs font-medium ${(wt.monthly_visitor_mom_pct as number) > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                            {(wt.monthly_visitor_mom_pct as number) > 0 ? "+" : ""}{(wt.monthly_visitor_mom_pct as number).toFixed(1)}% MoM
+                          </span>
+                        )}
+                      </div>
+                      {wtTimeseries && wtTimeseries.length > 0 && (
+                        <div className="mb-3">
+                          <Sparkline data={wtTimeseries.map(t => ((t.monthly_visitors ?? t.value ?? 0) as number))} color="#60a5fa" />
+                        </div>
+                      )}
+                      <span className="text-[10px] text-gray-500 block mb-1">Traffic Sources</span>
+                      {[
+                        ["Direct", wt.traffic_source_direct_pct, "bg-blue-500"],
+                        ["Search", wt.traffic_source_search_pct, "bg-emerald-500"],
+                        ["Social", wt.traffic_source_social_pct, "bg-purple-500"],
+                        ["Paid", wt.traffic_source_paid_referral_pct, "bg-amber-500"],
+                        ["Referral", wt.traffic_source_referral_pct, "bg-cyan-500"],
+                      ].filter(([, v]) => v != null).map(([label, pct, color]) => (
+                        <div key={label as string} className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] text-gray-400 w-14">{label as string}</span>
+                          <MiniBar value={pct as number} max={100} color={color as string} />
+                          <span className="text-[10px] text-gray-500 w-10 text-right">{(pct as number).toFixed(1)}%</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {!wt && <p className="text-sm text-gray-500 italic">No web traffic data.</p>}
+                </div>
+
+                {/* Panel 7: Funding & Investors */}
+                <div className="bg-gray-800/50 rounded-lg p-4">
+                  <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Funding & Investors</h4>
+                  {funding ? (
+                    <>
+                      <div className="space-y-2 mb-3">
+                        <div className="flex justify-between"><span className="text-xs text-gray-500">Total Raised</span><span className="text-sm font-medium text-white">{formatMoney(funding.crunchbase_total_investment_usd as number)}</span></div>
+                        <div className="flex justify-between"><span className="text-xs text-gray-500">Last Round</span><span className="text-xs text-gray-300 capitalize">{(funding.last_funding_round_type as string) || "\u2014"}</span></div>
+                        <div className="flex justify-between"><span className="text-xs text-gray-500">Last Round Size</span><span className="text-xs text-gray-300">{formatMoney(funding.last_funding_round_investment_usd as number)}</span></div>
+                        {funding.days_since_last_fundraise != null && <div className="flex justify-between"><span className="text-xs text-gray-500">Days Since Raise</span><span className="text-xs text-gray-300">{funding.days_since_last_fundraise as number}d</span></div>}
+                      </div>
+                      {funding.crunchbase_investors && (
+                        <div><span className="text-[10px] text-gray-500 block mb-1">Investors</span><div className="flex flex-wrap gap-1">{(funding.crunchbase_investors as string[]).map((inv, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 bg-gray-700 text-gray-300 rounded">{inv}</span>)}</div></div>
+                      )}
+                      {founders && (
+                        <div className="mt-3 pt-3 border-t border-gray-700">
+                          <span className="text-[10px] text-gray-500 block mb-1">Founder Background</span>
+                          {(() => {
+                            const schools = Array.isArray(founders.founders_education_institute) ? founders.founders_education_institute as string[] : founders.founders_education_institute ? [founders.founders_education_institute as string] : [];
+                            const degrees = Array.isArray(founders.founders_degree_name) ? founders.founders_degree_name as string[] : founders.founders_degree_name ? [founders.founders_degree_name as string] : [];
+                            return schools.map((school, i) => <div key={i} className="flex items-center gap-2 mt-1"><span className="text-[10px] text-gray-300">{school}</span>{degrees[i] && <span className="text-[9px] text-gray-500">({degrees[i]})</span>}</div>);
+                          })()}
+                          {founders.founders_previous_companies && (
+                            <div className="mt-2"><span className="text-[10px] text-gray-500 block mb-0.5">Previous Companies</span><div className="flex flex-wrap gap-1">{(Array.isArray(founders.founders_previous_companies) ? founders.founders_previous_companies as string[] : [founders.founders_previous_companies as string]).slice(0, 6).map((c, i) => <span key={i} className="text-[9px] px-1.5 py-0.5 bg-gray-700 text-gray-400 rounded">{c}</span>)}</div></div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : <p className="text-sm text-gray-500 italic">No funding data.</p>}
+                </div>
+
+                {/* Panel 8: SEO & Paid Search */}
+                <div className="bg-gray-800/50 rounded-lg p-4">
+                  <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">SEO & Paid Search</h4>
+                  {seoData ? (
+                    <div className="space-y-2">
+                      {seoData.monthly_google_ads_budget != null && <div className="flex justify-between"><span className="text-xs text-gray-500">Google Ads Budget</span><span className="text-sm font-medium text-amber-400">${((seoData.monthly_google_ads_budget as number)).toLocaleString()}/mo</span></div>}
+                      {seoData.monthly_paid_clicks != null && <div className="flex justify-between"><span className="text-xs text-gray-500">Paid Clicks</span><span className="text-xs text-gray-300">{(seoData.monthly_paid_clicks as number).toLocaleString()}/mo</span></div>}
+                      {seoData.monthly_organic_clicks != null && <div className="flex justify-between"><span className="text-xs text-gray-500">Organic Clicks</span><span className="text-xs text-gray-300">{(seoData.monthly_organic_clicks as number).toLocaleString()}/mo</span></div>}
+                      {seoData.monthly_organic_value != null && <div className="flex justify-between"><span className="text-xs text-gray-500">Organic Value</span><span className="text-xs text-gray-300">${((seoData.monthly_organic_value as number)).toLocaleString()}/mo</span></div>}
+                      {seoData.total_ads_purchased != null && <div className="flex justify-between"><span className="text-xs text-gray-500">Ads Running</span><span className="text-xs text-gray-300">{seoData.total_ads_purchased as number}</span></div>}
+                      {seoData.total_organic_results != null && <div className="flex justify-between"><span className="text-xs text-gray-500">Organic Rankings</span><span className="text-xs text-gray-300">{(seoData.total_organic_results as number).toLocaleString()}</span></div>}
+                      {seoData.newly_ranked_seo_keywords != null && <div className="flex justify-between"><span className="text-[10px] text-gray-500">New Keywords</span><span className="text-[10px] text-emerald-400">+{seoData.newly_ranked_seo_keywords as number}</span></div>}
+                    </div>
+                  ) : <p className="text-sm text-gray-500 italic">No SEO data.</p>}
+                  {cd?.estimated_revenue_lower_bound_usd != null && (
+                    <div className="mt-3 pt-3 border-t border-gray-700">
+                      <span className="text-[10px] text-gray-500 block mb-1">Estimated Revenue</span>
+                      <span className="text-sm text-white font-medium">{formatMoney(cd.estimated_revenue_lower_bound_usd as number)} - {formatMoney(cd.estimated_revenue_higher_bound_usd as number)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-2">
+                <p className="text-xs text-gray-500 italic">No Crust Data enrichment yet. Classify as HVT to trigger enrichment.</p>
+              </div>
+            )}
           </td>
         </tr>
         );
