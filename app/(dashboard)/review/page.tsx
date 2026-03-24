@@ -558,19 +558,6 @@ function CompanyRow({
                     <span className="text-[10px] text-gray-300">{s.customers_named.join(", ")}</span>
                   </div>
                 )}
-                {dms && dms.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-gray-700">
-                    <span className="text-[10px] text-gray-500 block mb-1">Leadership</span>
-                    {dms.slice(0, 5).map((dm, i) => (
-                      <div key={i} className="flex items-center gap-1 mt-0.5 flex-wrap">
-                        <span className="text-[10px] text-gray-300">{dm.name as string}</span>
-                        <span className="text-[9px] text-gray-500">{dm.title as string}</span>
-                        {dm.location && <span className="text-[9px] text-gray-600">({dm.location as string})</span>}
-                        {dm.linkedin_flagship_url && <a href={dm.linkedin_flagship_url as string} target="_blank" rel="noopener noreferrer" className="text-[9px] text-blue-400" onClick={(e) => e.stopPropagation()}>LI</a>}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
 
               {/* Panel 2: Competitors */}
@@ -603,25 +590,21 @@ function CompanyRow({
                 )}
               </div>
 
-              {/* Panel 3: Survey Details (replaces Engagement History for non-HVT) */}
+              {/* Panel 3: Leadership Team */}
               <div className="bg-gray-800/50 rounded-lg p-4">
-                <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Survey Details</h4>
-                <div className="space-y-2 text-[10px]">
-                  <div><span className="text-gray-500 block">NAICS</span><span className="text-gray-300">{s.naics_3digit_code} {s.naics_3digit_name || "\u2014"}</span></div>
-                  <div><span className="text-gray-500 block">Product Category</span><span className="text-gray-300">{s.product_category || "\u2014"}</span></div>
-                  {s.success_indicators && s.success_indicators.length > 0 && (
-                    <div><span className="text-gray-500 block">Success Signals</span><span className="text-gray-300">{s.success_indicators.join("; ")}</span></div>
-                  )}
-                  {s.disfavored_vertical && (
-                    <div><span className="text-red-400 font-medium">Disfavored: {s.disfavored_vertical}</span></div>
-                  )}
-                  {s.pb_description && s.pb_description !== s.what_they_do && (
-                    <div className="mt-2 pt-2 border-t border-gray-700">
-                      <span className="text-gray-500 block mb-0.5">PitchBook Description</span>
-                      <span className="text-gray-400">{s.pb_description}</span>
-                    </div>
-                  )}
-                </div>
+                <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Leadership Team</h4>
+                {dms && dms.length > 0 ? (
+                  <div className="space-y-2">
+                    {dms.slice(0, 8).map((dm, i) => (
+                      <div key={i} className="flex items-start gap-2 flex-wrap">
+                        <span className="text-xs text-gray-300 font-medium">{dm.name as string}</span>
+                        <span className="text-[10px] text-gray-500">{dm.title as string}</span>
+                        {dm.location && <span className="text-[9px] text-gray-600">({dm.location as string})</span>}
+                        {dm.linkedin_flagship_url && <a href={dm.linkedin_flagship_url as string} target="_blank" rel="noopener noreferrer" className="text-[9px] text-blue-400" onClick={(e) => e.stopPropagation()}>LI</a>}
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="text-sm text-gray-500 italic">No leadership data. Run Crust Data enrichment to populate.</p>}
               </div>
 
               {/* Panel 4: Market & TAM */}
