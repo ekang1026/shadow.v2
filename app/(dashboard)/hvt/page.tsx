@@ -597,7 +597,13 @@ export default function HVTPage() {
                           <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 pl-6">
                             {/* Panel 1: Headcount Over Time + Role Breakdown */}
                             <div className="bg-gray-800/50 rounded-lg p-4">
-                              <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Headcount Breakdown</h4>
+                              <h4 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
+                                {s?.linkedin_url ? (
+                                  <a href={`${s.linkedin_url.replace(/\/$/, "")}/insights/`} target="_blank" rel="noopener noreferrer" className="hover:text-blue-400 transition-colors" title="View LinkedIn Insights">
+                                    Headcount Breakdown <span className="text-blue-500 text-[10px]">↗</span>
+                                  </a>
+                                ) : "Headcount Breakdown"}
+                              </h4>
                               {hcTimeseries && hcTimeseries.length > 0 && (
                                 <div className="mb-3">
                                   <span className="text-[10px] text-gray-500 block mb-1">Historical Headcount</span>
