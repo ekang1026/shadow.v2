@@ -954,6 +954,15 @@ export default function ReviewPage() {
   const [ingestStatus, setIngestStatus] = useState<string | null>(null);
   const [ingestLogs, setIngestLogs] = useState<string[]>([]);
   const [ingestSummary, setIngestSummary] = useState<{ new: number; updated: number; skipped: number; errors: number; hc_passed?: number; llm_passed?: number; llm_failed?: number; duration_seconds: number; file_name: string } | null>(null);
+  const [ingestPreview, setIngestPreview] = useState<{
+    total_rows: number; new: number; pending: number; hvt: number; classified: number;
+    new_sample: { name: string; pb_id: string }[];
+    pending_sample: { name: string; pb_id: string }[];
+    hvt_sample: { name: string; pb_id: string }[];
+    classified_sample: { name: string; pb_id: string; status: string }[];
+    tmp_path: string; file_name: string;
+  } | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logPanelRef = useRef<HTMLDivElement>(null);
 
@@ -970,25 +979,53 @@ export default function ReviewPage() {
     } catch {}
   }, []);
 
-  const handleIngest = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Step 1: Parse file and show preview
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setIngesting(true);
-    setIngestStatus(`Running full pipeline on ${file.name}... (ingest \u2192 LinkedIn HC \u2192 LLM survey)`);
+    setPendingFile(file);
+    setIngestStatus(`Analyzing ${file.name}...`);
+    setIngestPreview(null);
     setIngestLogs([]);
     setIngestSummary(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
+      const res = await fetch("/api/ingest/preview", { method: "POST", body: formData });
+      const data = await res.json();
+      if (res.ok && !data.error) {
+        setIngestPreview(data);
+        setIngestStatus(null);
+      } else {
+        setIngestStatus(`Preview failed: ${data.error}`);
+        setPendingFile(null);
+      }
+    } catch (err) {
+      setIngestStatus("Preview failed");
+      setPendingFile(null);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  // Step 2: User confirms, run the full pipeline
+  const handleConfirmIngest = async () => {
+    if (!pendingFile) return;
+    setIngesting(true);
+    setIngestPreview(null);
+    setIngestStatus(`Running full pipeline on ${pendingFile.name}... (ingest → LinkedIn HC → LLM survey → Crust Data)`);
+    setIngestLogs([]);
+    setIngestSummary(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", pendingFile);
       const res = await fetch("/api/ingest", {
         method: "POST",
         body: formData,
-        signal: AbortSignal.timeout(600000), // 10 minute timeout for large files
+        signal: AbortSignal.timeout(600000),
       });
       const data = await res.json();
 
       if (res.ok && data.success) {
-        // Show logs from the pipeline
         if (data.logs && data.logs.length > 0) {
           setIngestLogs(data.logs);
         }
@@ -998,7 +1035,7 @@ export default function ReviewPage() {
           file_name: data.file_name,
         });
         const s = data.stats;
-        setIngestStatus(`Pipeline complete: ${s.new} ingested, ${s.hc_passed || 0} passed HC, ${s.llm_passed || 0} passed LLM \u2192 ready for review`);
+        setIngestStatus(`Pipeline complete: ${s.new} ingested, ${s.hc_passed || 0} passed HC, ${s.llm_passed || 0} passed LLM → ready for review`);
         fetchCompanies();
         fetchIngestMeta();
       } else {
@@ -1009,8 +1046,14 @@ export default function ReviewPage() {
       setIngestStatus("Ingest failed");
     } finally {
       setIngesting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      setPendingFile(null);
     }
+  };
+
+  const handleCancelIngest = () => {
+    setIngestPreview(null);
+    setPendingFile(null);
+    setIngestStatus(null);
   };
 
   const fetchCompanies = useCallback(async () => {
@@ -1267,7 +1310,7 @@ export default function ReviewPage() {
               ref={fileInputRef}
               type="file"
               accept=".xlsx,.xls,.csv"
-              onChange={handleIngest}
+              onChange={handleFileSelect}
               className="hidden"
             />
             {lastIngest?.last_run_at && (
@@ -1339,6 +1382,81 @@ export default function ReviewPage() {
       {draftStatus && (
         <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${draftStatus.includes("failed") ? "bg-red-900/30 text-red-300" : draftStatus.includes("created") ? "bg-emerald-900/30 text-emerald-300" : "bg-blue-900/30 text-blue-300"}`}>
           {draftStatus}
+        </div>
+      )}
+
+      {/* Ingest Preview Dialog */}
+      {ingestPreview && (
+        <div className="mb-4 rounded-lg border border-indigo-700 bg-gray-900/80 p-5">
+          <h3 className="text-sm font-medium text-white mb-3">File Analysis: {ingestPreview.file_name}</h3>
+          <p className="text-xs text-gray-400 mb-4">{ingestPreview.total_rows} companies found in file</p>
+
+          <div className="grid grid-cols-4 gap-4 mb-4">
+            <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+              <div className="text-2xl font-bold text-emerald-400">{ingestPreview.new}</div>
+              <div className="text-xs text-gray-500">New Companies</div>
+              {ingestPreview.new_sample.length > 0 && (
+                <div className="mt-2 max-h-24 overflow-y-auto">
+                  {ingestPreview.new_sample.slice(0, 5).map((c, i) => (
+                    <div key={i} className="text-[10px] text-gray-400 truncate">{c.name}</div>
+                  ))}
+                  {ingestPreview.new > 5 && <div className="text-[10px] text-gray-600">+{ingestPreview.new - 5} more</div>}
+                </div>
+              )}
+            </div>
+            <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+              <div className="text-2xl font-bold text-blue-400">{ingestPreview.pending}</div>
+              <div className="text-xs text-gray-500">Already in Review</div>
+              {ingestPreview.pending_sample.length > 0 && (
+                <div className="mt-2 max-h-24 overflow-y-auto">
+                  {ingestPreview.pending_sample.slice(0, 5).map((c, i) => (
+                    <div key={i} className="text-[10px] text-gray-400 truncate">{c.name}</div>
+                  ))}
+                  {ingestPreview.pending > 5 && <div className="text-[10px] text-gray-600">+{ingestPreview.pending - 5} more</div>}
+                </div>
+              )}
+            </div>
+            <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+              <div className="text-2xl font-bold text-amber-400">{ingestPreview.hvt}</div>
+              <div className="text-xs text-gray-500">Already HVT</div>
+              {ingestPreview.hvt_sample.length > 0 && (
+                <div className="mt-2 max-h-24 overflow-y-auto">
+                  {ingestPreview.hvt_sample.map((c, i) => (
+                    <div key={i} className="text-[10px] text-gray-400 truncate">{c.name}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+              <div className="text-2xl font-bold text-gray-500">{ingestPreview.classified}</div>
+              <div className="text-xs text-gray-500">Previously Classified</div>
+              {ingestPreview.classified_sample.length > 0 && (
+                <div className="mt-2 max-h-24 overflow-y-auto">
+                  {ingestPreview.classified_sample.map((c, i) => (
+                    <div key={i} className="text-[10px] text-gray-400 truncate">{c.name} <span className="text-gray-600">({c.status})</span></div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleConfirmIngest}
+              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors cursor-pointer"
+            >
+              Ingest {ingestPreview.new} New Companies
+            </button>
+            <button
+              onClick={handleCancelIngest}
+              className="px-4 py-2 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <span className="text-xs text-gray-500">
+              {ingestPreview.new > 0 ? `Will run: LinkedIn HC → LLM Survey → Crust Data on ${ingestPreview.new} new companies` : "No new companies to ingest"}
+            </span>
+          </div>
         </div>
       )}
 
