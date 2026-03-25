@@ -77,7 +77,7 @@ async function getEngagementForDomain(domain: string, companyId: string, company
           filters: [{
             propertyName: "email",
             operator: "CONTAINS_TOKEN",
-            value: domain.replace("www.", "").split(".")[0], // e.g., "archiveintel"
+            value: `@${domain.replace("www.", "")}`, // e.g., "@archiveintel.com" — matches full domain not just prefix
           }],
         }],
         properties: ["email", "firstname", "lastname", "jobtitle"],
