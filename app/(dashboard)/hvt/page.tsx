@@ -397,7 +397,6 @@ export default function HVTPage() {
                         </>
                       );
                     })()}
-                    </td>
                     <td className="py-3 px-4 text-center">
                       {hasIntel ? (
                         <div className="flex items-center justify-center gap-1">
