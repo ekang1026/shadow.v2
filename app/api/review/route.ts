@@ -124,9 +124,10 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Calculate requeue date for PS and PT (3 months out)
+  // Calculate requeue date — only PS (Pass-Stage) requeues after 3 months
+  // PT (Pass-Traction) is a permanent pass, same as PM and PL
   let requeueDate: string | null = null;
-  if (classification === "PS" || classification === "PT") {
+  if (classification === "PS") {
     const date = new Date();
     date.setMonth(date.getMonth() + 3);
     requeueDate = date.toISOString().split("T")[0];

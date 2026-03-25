@@ -412,7 +412,7 @@ export default function HVTPage() {
                 { value: "PM", label: "Pass - Market", desc: "Market not attractive" },
                 { value: "PL", label: "Pass - Location", desc: "Wrong geography" },
                 { value: "PS", label: "Pass - Stage", desc: "Too early/late (requeue 3mo)" },
-                { value: "PT", label: "Pass - Traction", desc: "Insufficient traction (requeue 3mo)" },
+                { value: "PT", label: "Pass - Traction", desc: "Insufficient traction (permanent)" },
               ].map((opt) => (
                 <button
                   key={opt.value}

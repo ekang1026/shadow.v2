@@ -1509,7 +1509,7 @@ export default function ReviewPage() {
         <span><span className="text-red-400 font-medium">PM</span> Pass &mdash; Market</span>
         <span><span className="text-orange-400 font-medium">PL</span> Pass &mdash; Location</span>
         <span><span className="text-yellow-400 font-medium">PS</span> Pass &mdash; Stage <span className="text-gray-600 ml-1">(3mo requeue)</span></span>
-        <span><span className="text-blue-400 font-medium">PT</span> Pass &mdash; Traction <span className="text-gray-600 ml-1">(3mo requeue)</span></span>
+        <span><span className="text-blue-400 font-medium">PT</span> Pass &mdash; Traction <span className="text-gray-600 ml-1">(permanent)</span></span>
       </div>
 
       {loading ? (
