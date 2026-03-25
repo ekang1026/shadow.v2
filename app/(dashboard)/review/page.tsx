@@ -380,7 +380,7 @@ function renderCell(
 
     case "whatTheyDo":
       return (
-        <td key={colId} className="py-3 px-4 text-gray-400 cursor-pointer overflow-hidden" onClick={() => onToggleExpand(company.id)} title="Click to expand survey details">
+        <td key={colId} className="py-3 px-4 text-gray-400 overflow-hidden" title="Click row to expand details">
           <p className="line-clamp-2 text-xs leading-relaxed">{s?.what_they_do || s?.pb_description || "\u2014"}</p>
         </td>
       );
