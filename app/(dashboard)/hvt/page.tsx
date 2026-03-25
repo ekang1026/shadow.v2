@@ -105,6 +105,83 @@ function timeAgo(dateStr: string | null): string {
   return `${Math.floor(diffDays / 365)}yr ago`;
 }
 
+// Pass Modal Component
+function PassModal({ passQueue, passIndex, companies, passReason, setPassReason, passNote, setPassNote, passing, onClose, onSkip, onConfirm }: {
+  passQueue: string[]; passIndex: number; companies: HVTCompany[];
+  passReason: string; setPassReason: (v: string) => void;
+  passNote: string; setPassNote: (v: string) => void;
+  passing: boolean; onClose: () => void; onSkip: () => void; onConfirm: () => void;
+}) {
+  const currentCompanyId = passQueue[passIndex];
+  const currentCompany = companies.find((c) => c.id === currentCompanyId);
+  const currentName = currentCompany?.snapshot?.name || "Unknown";
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[480px] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-lg font-medium text-white">Pass on {currentName}</h3>
+          {passQueue.length > 1 && (
+            <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">{passIndex + 1} of {passQueue.length}</span>
+          )}
+        </div>
+        <p className="text-sm text-gray-400 mb-4">Select a reason and optionally add a note.</p>
+
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          {[
+            { value: "PM", label: "Pass — Market", desc: "Market not attractive" },
+            { value: "PL", label: "Pass — Location", desc: "Wrong geography" },
+            { value: "PS", label: "Pass — Stage", desc: "Too early/late (requeue 3mo)" },
+            { value: "PT", label: "Pass — Traction", desc: "Insufficient traction (permanent)" },
+          ].map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setPassReason(opt.value)}
+              className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
+                passReason === opt.value
+                  ? "border-red-500 bg-red-900/20 text-white"
+                  : "border-gray-700 hover:border-gray-500 text-gray-400"
+              }`}
+            >
+              <div className="text-sm font-medium">{opt.label}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{opt.desc}</div>
+            </button>
+          ))}
+        </div>
+
+        <div className="mb-4">
+          <label className="text-xs text-gray-500 block mb-1">Note (optional)</label>
+          <textarea
+            value={passNote}
+            onChange={(e) => setPassNote(e.target.value)}
+            placeholder="Why are you passing on this company..."
+            className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-gray-500 resize-none"
+            rows={3}
+          />
+        </div>
+
+        <div className="flex items-center justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors cursor-pointer">
+            Cancel
+          </button>
+          {passQueue.length > 1 && (
+            <button onClick={onSkip} className="px-4 py-2 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors cursor-pointer">
+              Skip
+            </button>
+          )}
+          <button
+            onClick={onConfirm}
+            disabled={!passReason || passing}
+            className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 disabled:bg-red-900 disabled:text-red-300 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
+          >
+            {passing ? "Passing..." : passIndex < passQueue.length - 1 ? `Pass & Next (${passReason || "..."})` : `Confirm Pass (${passReason || "..."})`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function HVTPage() {
   const [companies, setCompanies] = useState<HVTCompany[]>([]);
   const [loading, setLoading] = useState(true);
@@ -399,81 +476,23 @@ export default function HVTPage() {
       )}
 
       {/* Pass Modal */}
-      {showPassModal && passQueue.length > 0 && (() => {
-        const currentCompanyId = passQueue[passIndex];
-        const currentCompany = companies.find((c) => c.id === currentCompanyId);
-        const currentName = currentCompany?.snapshot?.name || "Unknown";
-        return (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => { setShowPassModal(false); setPassQueue([]); setPassIndex(0); }}>
-          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[480px] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-1">
-              <h3 className="text-lg font-medium text-white">Pass on {currentName}</h3>
-              {passQueue.length > 1 && (
-                <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">{passIndex + 1} of {passQueue.length}</span>
-              )}
-            </div>
-            <p className="text-sm text-gray-400 mb-4">Select a reason and optionally add a note.</p>
+      {showPassModal && passQueue.length > 0 && (
+        <PassModal
+          passQueue={passQueue}
+          passIndex={passIndex}
+          companies={companies}
+          passReason={passReason}
+          setPassReason={setPassReason}
+          passNote={passNote}
+          setPassNote={setPassNote}
+          passing={passing}
+          onClose={() => { setShowPassModal(false); setPassQueue([]); setPassIndex(0); setPassReason(""); setPassNote(""); }}
+          onSkip={handleSkipPass}
+          onConfirm={handlePassCurrent}
+        />
+      )}
 
-            <div className="grid grid-cols-2 gap-2 mb-4">
-              {[
-                { value: "PM", label: "Pass - Market", desc: "Market not attractive" },
-                { value: "PL", label: "Pass - Location", desc: "Wrong geography" },
-                { value: "PS", label: "Pass - Stage", desc: "Too early/late (requeue 3mo)" },
-                { value: "PT", label: "Pass - Traction", desc: "Insufficient traction (permanent)" },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setPassReason(opt.value)}
-                  className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
-                    passReason === opt.value
-                      ? "border-red-500 bg-red-900/20 text-white"
-                      : "border-gray-700 hover:border-gray-500 text-gray-400"
-                  }`}
-                >
-                  <div className="text-sm font-medium">{opt.label}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">{opt.desc}</div>
-                </button>
-              ))}
-            </div>
-
-            <div className="mb-4">
-              <label className="text-xs text-gray-500 block mb-1">Note (optional)</label>
-              <textarea
-                value={passNote}
-                onChange={(e) => setPassNote(e.target.value)}
-                placeholder="Why are you passing on this company..."
-                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-gray-500 resize-none"
-                rows={3}
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-3">
-              <button
-                onClick={() => { setShowPassModal(false); setPassQueue([]); setPassIndex(0); setPassReason(""); setPassNote(""); }}
-                className="px-4 py-2 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              {passQueue.length > 1 && (
-                <button
-                  onClick={handleSkipPass}
-                  className="px-4 py-2 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors cursor-pointer"
-                >
-                  Skip
-                </button>
-              )}
-              <button
-                onClick={handlePassCurrent}
-                disabled={!passReason || passing}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 disabled:bg-red-900 disabled:text-red-300 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
-              >
-                {passing ? "Passing..." : passIndex < passQueue.length - 1 ? `Pass & Next (${passReason || "..."})` : `Confirm Pass (${passReason || "..."})`}
-              </button>
-            </div>
-          </div>
-        </div>
-        );
-      })()}
+      {/* Pass modal is now rendered via PassModal component above */}
 
       {loading ? (
         <div className="flex items-center justify-center py-20"><div className="text-gray-500">Loading HVT companies...</div></div>
@@ -558,6 +577,63 @@ export default function HVTPage() {
               const hasWebsiteChange = !!company.latest_website_change;
               const hasPosts = company.recent_posts.length > 0;
               const hasIntel = hasWebsiteChange || hasPosts;
+
+              // HubSpot data for table row cells (was IIFE #1)
+              const hs = hubspotData[company.id];
+              const hsReady = Object.keys(hubspotData).length > 0;
+              if (hs && s?.name === "Archive Intel") console.log("[DEBUG] Archive Intel hs:", JSON.stringify({totalEmails: hs.totalEmails, totalOpens: hs.totalOpens, emailCount: hs.emails?.length}));
+              const daysIdle = hs?.lastActivityDate ? Math.floor((Date.now() - new Date(hs.lastActivityDate).getTime()) / 86400000) : null;
+              const hasOpened = hs ? hs.totalOpens > 0 : false;
+              const loadingCell = <span className="inline-block w-3 h-1 bg-gray-700 rounded animate-pulse" />;
+
+              // Crustdata enrichment variables (was IIFE #2)
+              const cd = s?.crustdata_enrichment as Record<string, unknown> | null;
+              const hc = cd?.headcount as Record<string, unknown> | null;
+              const wt = cd?.web_traffic as Record<string, unknown> | null;
+              const funding = cd?.funding_and_investment as Record<string, unknown> | null;
+              const founders = cd?.founders as Record<string, unknown> | null;
+              const seoData = cd?.seo as Record<string, unknown> | null;
+              const dms = cd?.decision_makers as Array<Record<string, unknown>> | null;
+              const competitors_cd = cd?.competitors as Record<string, unknown> | null;
+              const hcTimeseries = hc?.linkedin_headcount_timeseries as Array<Record<string, unknown>> | null;
+              const wtTimeseries = wt?.monthly_visitors_timeseries as Array<Record<string, unknown>> | null;
+              const roleAbsolute = hc?.linkedin_headcount_by_role_absolute as Record<string, number> | null;
+              const rolePercent = hc?.linkedin_headcount_by_role_percent as Record<string, number> | null;
+              const roleSixMo = hc?.linkedin_headcount_by_role_six_months_growth_percent as Record<string, number> | null;
+              const fundingMilestones = funding?.funding_milestones_timeseries as Array<Record<string, unknown>> | null;
+              const paidSeoComps = competitors_cd?.paid_seo_competitors_website_domains as string[] | null;
+              const organicSeoComps = competitors_cd?.organic_seo_competitors_website_domains as string[] | null;
+
+              // Mini bar chart helper (was inside IIFE #2)
+              const MiniBar = ({ value, max, color = "bg-blue-500" }: { value: number; max: number; color?: string }) => (
+                <div className="w-full bg-gray-700 rounded-full h-1.5">
+                  <div className={`${color} h-1.5 rounded-full`} style={{ width: `${Math.min(100, (value / max) * 100)}%` }} />
+                </div>
+              );
+
+              // Sparkline helper for timeseries (was inside IIFE #2)
+              const Sparkline = ({ data, color = "#60a5fa" }: { data: number[]; color?: string }) => {
+                if (!data || data.length < 2) return null;
+                const min = Math.min(...data);
+                const max = Math.max(...data);
+                const range = max - min || 1;
+                const w = 200; const h = 40;
+                const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * h}`).join(" ");
+                return (
+                  <svg width={w} height={h} className="overflow-visible">
+                    <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
+                  </svg>
+                );
+              };
+
+              // Founder education data (was IIFE #4)
+              const founderSchools = founders ? (Array.isArray(founders.founders_education_institute)
+                ? founders.founders_education_institute as string[]
+                : founders.founders_education_institute ? [founders.founders_education_institute as string] : []) : [];
+              const founderDegrees = founders ? (Array.isArray(founders.founders_degree_name)
+                ? founders.founders_degree_name as string[]
+                : founders.founders_degree_name ? [founders.founders_degree_name as string] : []) : [];
+
               return (
                 <tbody key={company.id}>
                   <tr className={`border-b border-gray-800/50 transition-all duration-200 cursor-pointer ${isSelected ? "bg-blue-900/20" : isExpanded ? "bg-gray-900/50" : "hover:bg-gray-900/30"}`}
@@ -586,33 +662,22 @@ export default function HVTPage() {
                         {s?.ceo_linkedin_url && (<a href={s.ceo_linkedin_url} target="_blank" rel="noopener noreferrer" className="px-1 py-0.5 text-[10px] font-bold rounded bg-gray-700 text-blue-400 hover:bg-gray-600 hover:text-blue-300 transition-colors" title="CEO LinkedIn" onClick={(e) => e.stopPropagation()}>LI</a>)}
                       </div>
                     </td>
-                    {(() => {
-                      const hs = hubspotData[company.id];
-                      const hsReady = Object.keys(hubspotData).length > 0;
-                      const daysIdle = hs?.lastActivityDate ? Math.floor((Date.now() - new Date(hs.lastActivityDate).getTime()) / 86400000) : null;
-                      const hasOpened = hs ? hs.totalOpens > 0 : false;
-                      const loadingCell = <span className="inline-block w-3 h-1 bg-gray-700 rounded animate-pulse" />;
-                      return (
-                        <>
-                          <td className="py-3 px-4 text-center text-gray-300 tabular-nums">{!hsReady ? loadingCell : hs ? hs.totalEmails : 0}</td>
-                          <td className="py-3 px-4 text-center tabular-nums">
-                            {!hsReady ? loadingCell : daysIdle !== null ? (
-                              <span className={daysIdle > 14 ? "text-red-400" : daysIdle > 7 ? "text-yellow-400" : "text-gray-300"}>{daysIdle}d</span>
-                            ) : "\u2014"}
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            {!hsReady ? loadingCell : hs ? (hasOpened ? <span className="text-emerald-400 text-xs font-medium">Yes</span> : <span className="text-gray-500 text-xs">No</span>) : "\u2014"}
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            {!hsReady ? loadingCell : hs ? (
-                              hs.emails?.some((e: HubSpotEmail) => e.direction === "INCOMING_EMAIL")
-                                ? <span className="text-emerald-400 text-xs font-medium">Yes</span>
-                                : <span className="text-gray-500 text-xs">No</span>
-                            ) : "\u2014"}
-                          </td>
-                        </>
-                      );
-                    })()}
+                    <td className="py-3 px-4 text-center text-gray-300 tabular-nums">{!hsReady ? loadingCell : hs ? hs.totalEmails : 0}</td>
+                    <td className="py-3 px-4 text-center tabular-nums">
+                      {!hsReady ? loadingCell : daysIdle !== null ? (
+                        <span className={daysIdle > 14 ? "text-red-400" : daysIdle > 7 ? "text-yellow-400" : "text-gray-300"}>{daysIdle}d</span>
+                      ) : "\u2014"}
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      {!hsReady ? loadingCell : hs ? (hasOpened ? <span className="text-emerald-400 text-xs font-medium">Yes</span> : <span className="text-gray-500 text-xs">No</span>) : "\u2014"}
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      {!hsReady ? loadingCell : hs ? (
+                        hs.emails?.some((e: HubSpotEmail) => e.direction === "INCOMING_EMAIL")
+                          ? <span className="text-emerald-400 text-xs font-medium">Yes</span>
+                          : <span className="text-gray-500 text-xs">No</span>
+                      ) : "\u2014"}
+                    </td>
                     <td className="py-3 px-4 text-center">
                       {hasIntel ? (
                         <div className="flex items-center justify-center gap-1">
@@ -627,48 +692,9 @@ export default function HVTPage() {
                       ) : <span className="text-gray-600 text-xs">{"\u2014"}</span>}
                     </td>
                   </tr>
-                  {isExpanded && (() => {
-                    const cd = s?.crustdata_enrichment as Record<string, unknown> | null;
-                    const hc = cd?.headcount as Record<string, unknown> | null;
-                    const wt = cd?.web_traffic as Record<string, unknown> | null;
-                    const funding = cd?.funding_and_investment as Record<string, unknown> | null;
-                    const founders = cd?.founders as Record<string, unknown> | null;
-                    const seoData = cd?.seo as Record<string, unknown> | null;
-                    const dms = cd?.decision_makers as Array<Record<string, unknown>> | null;
-                    const competitors_cd = cd?.competitors as Record<string, unknown> | null;
-                    const hcTimeseries = hc?.linkedin_headcount_timeseries as Array<Record<string, unknown>> | null;
-                    const wtTimeseries = wt?.monthly_visitors_timeseries as Array<Record<string, unknown>> | null;
-                    const roleAbsolute = hc?.linkedin_headcount_by_role_absolute as Record<string, number> | null;
-                    const rolePercent = hc?.linkedin_headcount_by_role_percent as Record<string, number> | null;
-                    const roleSixMo = hc?.linkedin_headcount_by_role_six_months_growth_percent as Record<string, number> | null;
-                    const fundingMilestones = funding?.funding_milestones_timeseries as Array<Record<string, unknown>> | null;
-                    const paidSeoComps = competitors_cd?.paid_seo_competitors_website_domains as string[] | null;
-                    const organicSeoComps = competitors_cd?.organic_seo_competitors_website_domains as string[] | null;
-
-                    // Mini bar chart helper
-                    const MiniBar = ({ value, max, color = "bg-blue-500" }: { value: number; max: number; color?: string }) => (
-                      <div className="w-full bg-gray-700 rounded-full h-1.5">
-                        <div className={`${color} h-1.5 rounded-full`} style={{ width: `${Math.min(100, (value / max) * 100)}%` }} />
-                      </div>
-                    );
-
-                    // Sparkline helper for timeseries
-                    const Sparkline = ({ data, color = "#60a5fa" }: { data: number[]; color?: string }) => {
-                      if (!data || data.length < 2) return null;
-                      const min = Math.min(...data);
-                      const max = Math.max(...data);
-                      const range = max - min || 1;
-                      const w = 200; const h = 40;
-                      const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / range) * h}`).join(" ");
-                      return (
-                        <svg width={w} height={h} className="overflow-visible">
-                          <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
-                        </svg>
-                      );
-                    };
-
-                    return (
+                  {isExpanded && (
                     <tr className="bg-gray-900/30">
+
                       <td colSpan={13} className="px-4 py-4">
                         {/* Row 1: Core Info */}
                         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 pl-6 mb-4">
@@ -735,9 +761,7 @@ export default function HVTPage() {
                                 <span className="inline-block w-3 h-3 border-2 border-blue-300 border-t-transparent rounded-full animate-spin" />
                                 <span className="text-xs text-gray-500">Loading HubSpot data...</span>
                               </div>
-                            ) : hubspotData[company.id] ? (() => {
-                              const hs = hubspotData[company.id];
-                              return (
+                            ) : hs ? (
                                 <div className="space-y-2">
                                   {/* Summary stats */}
                                   <div className="flex gap-4 mb-3">
@@ -792,8 +816,7 @@ export default function HVTPage() {
                                     </div>
                                   )}
                                 </div>
-                              );
-                            })() : (
+                            ) : (
                               <p className="text-sm text-gray-500 italic">No HubSpot data available.</p>
                             )}
                           </div>
@@ -984,20 +1007,12 @@ export default function HVTPage() {
                               {founders && (
                                 <div className="mt-3 pt-3 border-t border-gray-700">
                                   <span className="text-[10px] text-gray-500 block mb-1">Founder Background</span>
-                                  {(() => {
-                                    const schools = Array.isArray(founders.founders_education_institute)
-                                      ? founders.founders_education_institute as string[]
-                                      : founders.founders_education_institute ? [founders.founders_education_institute as string] : [];
-                                    const degrees = Array.isArray(founders.founders_degree_name)
-                                      ? founders.founders_degree_name as string[]
-                                      : founders.founders_degree_name ? [founders.founders_degree_name as string] : [];
-                                    return schools.map((school, i) => (
-                                      <div key={i} className="flex items-center gap-2 mt-1">
-                                        <span className="text-[10px] text-gray-300">{school}</span>
-                                        {degrees[i] && <span className="text-[9px] text-gray-500">({degrees[i]})</span>}
-                                      </div>
-                                    ));
-                                  })()}
+                                  {founderSchools.map((school, i) => (
+                                    <div key={i} className="flex items-center gap-2 mt-1">
+                                      <span className="text-[10px] text-gray-300">{school}</span>
+                                      {founderDegrees[i] && <span className="text-[9px] text-gray-500">({founderDegrees[i]})</span>}
+                                    </div>
+                                  ))}
                                   {founders.founders_previous_companies && (
                                     <div className="mt-2">
                                       <span className="text-[10px] text-gray-500 block mb-0.5">Previous Companies</span>
@@ -1092,8 +1107,7 @@ export default function HVTPage() {
                         )}
                       </td>
                     </tr>
-                    );
-                  })()}
+                  )}
                 </tbody>
               );
             })}
