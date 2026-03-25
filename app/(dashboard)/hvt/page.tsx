@@ -120,6 +120,8 @@ export default function HVTPage() {
   const [passQueue, setPassQueue] = useState<string[]>([]);
   const [passIndex, setPassIndex] = useState(0);
   const [passReason, setPassReason] = useState<string>("");
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [passNote, setPassNote] = useState("");
   const [passing, setPassing] = useState(false);
   const [hubspotData, setHubspotData] = useState<Record<string, HubSpotEngagement>>({});
@@ -486,22 +488,65 @@ export default function HVTPage() {
                     onChange={(e) => { if (e.target.checked) setSelectedIds(new Set(companies.map(c => c.id))); else setSelectedIds(new Set()); }}
                   />
                 </th>
-                <th className="text-left py-3 px-4 font-medium text-gray-400">Company</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-400">Founded</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-400">HQ City</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-400">HC</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-400">1yr Growth</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-400">Raised</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-400">CEO</th>
-                <th className="text-center py-3 px-4 font-medium text-gray-400">Outreach</th>
-                <th className="text-center py-3 px-4 font-medium text-gray-400">Days Idle</th>
-                <th className="text-center py-3 px-4 font-medium text-gray-400">Opened</th>
-                <th className="text-center py-3 px-4 font-medium text-gray-400">Intel</th>
+                {[
+                  { key: "name", label: "Company", align: "text-left" },
+                  { key: "founded", label: "Founded", align: "text-left" },
+                  { key: null, label: "HQ City", align: "text-left" },
+                  { key: "hc", label: "HC", align: "text-right" },
+                  { key: "growth", label: "1yr Growth", align: "text-right" },
+                  { key: "raised", label: "Raised", align: "text-right" },
+                  { key: null, label: "CEO", align: "text-left" },
+                  { key: "outreach", label: "Outreach", align: "text-center" },
+                  { key: "daysIdle", label: "Days Idle", align: "text-center" },
+                  { key: "opened", label: "Opened", align: "text-center" },
+                  { key: "responded", label: "Responded", align: "text-center" },
+                  { key: null, label: "Intel", align: "text-center" },
+                ].map((col) => (
+                  <th
+                    key={col.label}
+                    className={`${col.align} py-3 px-4 font-medium text-gray-400 ${col.key ? "cursor-pointer hover:text-gray-200 select-none" : ""}`}
+                    onClick={col.key ? () => {
+                      if (sortKey === col.key) setSortDir(sortDir === "asc" ? "desc" : "asc");
+                      else { setSortKey(col.key); setSortDir("asc"); }
+                    } : undefined}
+                  >
+                    {col.label} {sortKey === col.key ? (sortDir === "asc" ? "\u25B2" : "\u25BC") : ""}
+                  </th>
+                ))}
               </tr>
             </thead>
-            {companies.map((company) => {
+            {[...companies].sort((a, b) => {
+              if (!sortKey) return 0;
+              const sa = a.snapshot;
+              const sb2 = b.snapshot;
+              const hsA = hubspotData[a.id];
+              const hsB = hubspotData[b.id];
+              let va: number | string = 0;
+              let vb: number | string = 0;
+              switch (sortKey) {
+                case "name": va = sa?.name?.toLowerCase() || ""; vb = sb2?.name?.toLowerCase() || ""; break;
+                case "founded": va = sa?.founded_year || 0; vb = sb2?.founded_year || 0; break;
+                case "hc": va = sa?.headcount || 0; vb = sb2?.headcount || 0; break;
+                case "growth": va = sa?.headcount_growth_1yr || 0; vb = sb2?.headcount_growth_1yr || 0; break;
+                case "raised": va = sa?.total_capital_raised || 0; vb = sb2?.total_capital_raised || 0; break;
+                case "outreach": va = hsA?.totalEmails || 0; vb = hsB?.totalEmails || 0; break;
+                case "daysIdle": {
+                  va = hsA?.lastActivityDate ? Math.floor((Date.now() - new Date(hsA.lastActivityDate).getTime()) / 86400000) : 9999;
+                  vb = hsB?.lastActivityDate ? Math.floor((Date.now() - new Date(hsB.lastActivityDate).getTime()) / 86400000) : 9999;
+                  break;
+                }
+                case "opened": va = hsA?.totalOpens ? 1 : 0; vb = hsB?.totalOpens ? 1 : 0; break;
+                case "responded": {
+                  const hasReplyA = hsA?.emails?.some((e: HubSpotEmail) => e.direction === "INCOMING_EMAIL") ? 1 : 0;
+                  const hasReplyB = hsB?.emails?.some((e: HubSpotEmail) => e.direction === "INCOMING_EMAIL") ? 1 : 0;
+                  va = hasReplyA; vb = hasReplyB; break;
+                }
+              }
+              if (va < vb) return sortDir === "asc" ? -1 : 1;
+              if (va > vb) return sortDir === "asc" ? 1 : -1;
+              return 0;
+            }).map((company) => {
               const s = company.snapshot;
-              const o = company.outreach;
               const isExpanded = expandedId === company.id;
               const isSelected = selectedIds.has(company.id);
               const hasWebsiteChange = !!company.latest_website_change;
@@ -551,6 +596,13 @@ export default function HVTPage() {
                           </td>
                           <td className="py-3 px-4 text-center">
                             {!hsReady ? loadingCell : hs ? (hasOpened ? <span className="text-emerald-400 text-xs font-medium">Yes</span> : <span className="text-gray-500 text-xs">No</span>) : "\u2014"}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            {!hsReady ? loadingCell : hs ? (
+                              hs.emails?.some((e: HubSpotEmail) => e.direction === "INCOMING_EMAIL")
+                                ? <span className="text-emerald-400 text-xs font-medium">Yes</span>
+                                : <span className="text-gray-500 text-xs">No</span>
+                            ) : "\u2014"}
                           </td>
                         </>
                       );
@@ -611,7 +663,7 @@ export default function HVTPage() {
 
                     return (
                     <tr className="bg-gray-900/30">
-                      <td colSpan={12} className="px-4 py-4">
+                      <td colSpan={13} className="px-4 py-4">
                         {/* Row 1: Core Info */}
                         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 pl-6 mb-4">
                           <div className="bg-gray-800/50 rounded-lg p-4">
