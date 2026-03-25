@@ -116,6 +116,10 @@ export default function HVTPage() {
   const [addUrl, setAddUrl] = useState("");
   const [adding, setAdding] = useState(false);
   const [addStatus, setAddStatus] = useState<string | null>(null);
+  const [showPassModal, setShowPassModal] = useState(false);
+  const [passReason, setPassReason] = useState<string>("");
+  const [passNote, setPassNote] = useState("");
+  const [passing, setPassing] = useState(false);
   const [hubspotData, setHubspotData] = useState<Record<string, HubSpotEngagement>>({});
   const [loadingHubspot, setLoadingHubspot] = useState<Set<string>>(new Set());
 
@@ -218,6 +222,41 @@ export default function HVTPage() {
     }
   };
 
+  const handlePassCompanies = async () => {
+    if (!passReason || selectedIds.size === 0) return;
+    setPassing(true);
+    try {
+      const results = await Promise.all(
+        Array.from(selectedIds).map(async (companyId) => {
+          const res = await fetch("/api/review", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              companyId,
+              classification: passReason,
+              note: passNote || undefined,
+            }),
+          });
+          return { companyId, ok: res.ok };
+        })
+      );
+      const succeeded = results.filter((r) => r.ok).length;
+      setDraftStatus(`${succeeded} company${succeeded !== 1 ? "ies" : ""} moved to ${passReason}`);
+      setSelectedIds(new Set());
+      setShowPassModal(false);
+      setPassReason("");
+      setPassNote("");
+      fetchCompanies();
+      setTimeout(() => setDraftStatus(null), 5000);
+    } catch (err) {
+      console.error("Pass failed:", err);
+      setDraftStatus("Failed to pass companies");
+      setTimeout(() => setDraftStatus(null), 5000);
+    } finally {
+      setPassing(false);
+    }
+  };
+
   const fetchHubspot = useCallback(async (companyId: string) => {
     if (hubspotData[companyId] || loadingHubspot.has(companyId)) return;
     setLoadingHubspot((prev) => new Set(prev).add(companyId));
@@ -267,9 +306,14 @@ export default function HVTPage() {
             {showAddForm ? "Cancel" : "+ Add Company"}
           </button>
           {selectedIds.size > 0 && (
-            <button onClick={handleDraftEmails} disabled={drafting} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:text-blue-300 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed">
-              {drafting ? "Drafting..." : `Draft ${selectedIds.size} Email${selectedIds.size > 1 ? "s" : ""}`}
-            </button>
+            <>
+              <button onClick={handleDraftEmails} disabled={drafting} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:text-blue-300 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed">
+                {drafting ? "Drafting..." : `Draft ${selectedIds.size} Email${selectedIds.size > 1 ? "s" : ""}`}
+              </button>
+              <button onClick={() => setShowPassModal(true)} className="px-4 py-1.5 text-sm font-medium text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors cursor-pointer">
+                Pass ({selectedIds.size})
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -309,6 +353,65 @@ export default function HVTPage() {
         <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${addStatus.includes("Failed") ? "bg-red-900/30 text-red-300" : addStatus.includes("Added") ? "bg-emerald-900/30 text-emerald-300" : "bg-blue-900/30 text-blue-300"}`}>
           {adding && <span className="inline-block w-3 h-3 border-2 border-blue-300 border-t-transparent rounded-full animate-spin mr-2 align-middle" />}
           {addStatus}
+        </div>
+      )}
+
+      {/* Pass Modal */}
+      {showPassModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setShowPassModal(false)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[480px] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-medium text-white mb-1">Pass on {selectedIds.size} {selectedIds.size === 1 ? "company" : "companies"}</h3>
+            <p className="text-sm text-gray-400 mb-4">Select a reason and optionally add a note.</p>
+
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {[
+                { value: "PM", label: "Pass - Market", desc: "Market not attractive" },
+                { value: "PL", label: "Pass - Location", desc: "Wrong geography" },
+                { value: "PS", label: "Pass - Stage", desc: "Too early/late (requeue 3mo)" },
+                { value: "PT", label: "Pass - Traction", desc: "Insufficient traction (requeue 3mo)" },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setPassReason(opt.value)}
+                  className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
+                    passReason === opt.value
+                      ? "border-red-500 bg-red-900/20 text-white"
+                      : "border-gray-700 hover:border-gray-500 text-gray-400"
+                  }`}
+                >
+                  <div className="text-sm font-medium">{opt.label}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{opt.desc}</div>
+                </button>
+              ))}
+            </div>
+
+            <div className="mb-4">
+              <label className="text-xs text-gray-500 block mb-1">Note (optional)</label>
+              <textarea
+                value={passNote}
+                onChange={(e) => setPassNote(e.target.value)}
+                placeholder="Why are you passing on this company..."
+                className="w-full px-3 py-2 text-sm bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-gray-500 resize-none"
+                rows={3}
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => { setShowPassModal(false); setPassReason(""); setPassNote(""); }}
+                className="px-4 py-2 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePassCompanies}
+                disabled={!passReason || passing}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 disabled:bg-red-900 disabled:text-red-300 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
+              >
+                {passing ? "Passing..." : `Confirm Pass (${passReason || "..."})`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
