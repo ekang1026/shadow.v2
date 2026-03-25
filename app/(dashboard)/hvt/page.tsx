@@ -491,7 +491,7 @@ export default function HVTPage() {
                 {[
                   { key: "name", label: "Company", align: "text-left" },
                   { key: "founded", label: "Founded", align: "text-left" },
-                  { key: null, label: "HQ City", align: "text-left" },
+                  { key: "city", label: "HQ City", align: "text-left" },
                   { key: "hc", label: "HC", align: "text-right" },
                   { key: "growth", label: "1yr Growth", align: "text-right" },
                   { key: "raised", label: "Raised", align: "text-right" },
@@ -526,6 +526,7 @@ export default function HVTPage() {
               switch (sortKey) {
                 case "name": va = sa?.name?.toLowerCase() || ""; vb = sb2?.name?.toLowerCase() || ""; break;
                 case "founded": va = sa?.founded_year || 0; vb = sb2?.founded_year || 0; break;
+                case "city": va = (sa?.pb_hq_city || sa?.location || "").toLowerCase(); vb = (sb2?.pb_hq_city || sb2?.location || "").toLowerCase(); break;
                 case "hc": va = sa?.headcount || 0; vb = sb2?.headcount || 0; break;
                 case "growth": va = sa?.headcount_growth_1yr || 0; vb = sb2?.headcount_growth_1yr || 0; break;
                 case "raised": va = sa?.total_capital_raised || 0; vb = sb2?.total_capital_raised || 0; break;
