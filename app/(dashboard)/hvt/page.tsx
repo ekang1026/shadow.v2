@@ -126,28 +126,34 @@ export default function HVTPage() {
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
     try {
-      const [hvtRes, hsRes] = await Promise.all([
-        fetch("/api/hvt"),
-        fetch("/api/hubspot"),
-      ]);
-      const data = await hvtRes.json();
+      const res = await fetch("/api/hvt");
+      const data = await res.json();
       setCompanies(data);
-
-      // Load all HubSpot data for table columns
-      const hsAll = await hsRes.json();
-      if (Array.isArray(hsAll)) {
-        const hsMap: Record<string, HubSpotEngagement> = {};
-        for (const hs of hsAll) {
-          if (hs.companyId) hsMap[hs.companyId] = hs;
-        }
-        setHubspotData(hsMap);
-      }
     } catch (err) {
       console.error("Failed to fetch HVT companies:", err);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  // Fetch HubSpot data in background after companies load
+  const [hsLoading, setHsLoading] = useState(false);
+  useEffect(() => {
+    if (companies.length === 0 || hsLoading) return;
+    setHsLoading(true);
+    fetch("/api/hubspot")
+      .then((res) => res.json())
+      .then((hsAll) => {
+        if (Array.isArray(hsAll)) {
+          const hsMap: Record<string, HubSpotEngagement> = {};
+          for (const hs of hsAll) {
+            if (hs.companyId) hsMap[hs.companyId] = hs;
+          }
+          setHubspotData(hsMap);
+        }
+      })
+      .catch((err) => console.error("HubSpot fetch failed:", err));
+  }, [companies]);
 
   useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
 
@@ -484,18 +490,20 @@ export default function HVTPage() {
                     </td>
                     {(() => {
                       const hs = hubspotData[company.id];
+                      const hsReady = Object.keys(hubspotData).length > 0;
                       const daysIdle = hs?.lastActivityDate ? Math.floor((Date.now() - new Date(hs.lastActivityDate).getTime()) / 86400000) : null;
                       const hasOpened = hs ? hs.totalOpens > 0 : false;
+                      const loadingCell = <span className="inline-block w-3 h-1 bg-gray-700 rounded animate-pulse" />;
                       return (
                         <>
-                          <td className="py-3 px-4 text-center text-gray-300 tabular-nums">{hs ? hs.totalEmails : "\u2014"}</td>
+                          <td className="py-3 px-4 text-center text-gray-300 tabular-nums">{!hsReady ? loadingCell : hs ? hs.totalEmails : 0}</td>
                           <td className="py-3 px-4 text-center tabular-nums">
-                            {daysIdle !== null ? (
+                            {!hsReady ? loadingCell : daysIdle !== null ? (
                               <span className={daysIdle > 14 ? "text-red-400" : daysIdle > 7 ? "text-yellow-400" : "text-gray-300"}>{daysIdle}d</span>
                             ) : "\u2014"}
                           </td>
                           <td className="py-3 px-4 text-center">
-                            {hs ? (hasOpened ? <span className="text-emerald-400 text-xs font-medium">Yes</span> : <span className="text-gray-500 text-xs">No</span>) : "\u2014"}
+                            {!hsReady ? loadingCell : hs ? (hasOpened ? <span className="text-emerald-400 text-xs font-medium">Yes</span> : <span className="text-gray-500 text-xs">No</span>) : "\u2014"}
                           </td>
                         </>
                       );
