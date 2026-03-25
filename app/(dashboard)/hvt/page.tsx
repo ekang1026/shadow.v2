@@ -151,7 +151,12 @@ export default function HVTPage() {
         if (Array.isArray(hsAll)) {
           const hsMap: Record<string, HubSpotEngagement> = {};
           for (const hs of hsAll) {
-            if (hs.companyId) hsMap[hs.companyId] = hs;
+            if (hs.companyId) {
+              hsMap[hs.companyId] = hs;
+              if (hs.totalOpens > 0 || hs.totalEmails > 0) {
+                console.log(`[HubSpot] ${hs.companyName}: emails=${hs.totalEmails}, opens=${hs.totalOpens}, meetings=${hs.totalMeetings}`);
+              }
+            }
           }
           setHubspotData(hsMap);
         }

@@ -38,7 +38,9 @@ interface HubSpotEngagement {
   lastActivityDate: string | null;
 }
 
-async function hubspotFetch(path: string, options: RequestInit = {}) {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function hubspotFetch(path: string, options: RequestInit = {}, retries = 2): Promise<Record<string, unknown>> {
   const res = await fetch(`${HUBSPOT_API}${path}`, {
     ...options,
     headers: {
@@ -47,11 +49,16 @@ async function hubspotFetch(path: string, options: RequestInit = {}) {
       ...options.headers,
     },
   });
+  if (res.status === 429 && retries > 0) {
+    // Rate limited — wait and retry
+    await sleep(1000);
+    return hubspotFetch(path, options, retries - 1);
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`HubSpot API error (${res.status}): ${text.slice(0, 200)}`);
   }
-  return res.json();
+  return res.json() as Promise<Record<string, unknown>>;
 }
 
 async function getEngagementForDomain(domain: string, companyId: string, companyName: string): Promise<HubSpotEngagement> {
@@ -221,6 +228,8 @@ export async function GET(request: Request) {
 
     const engagement = await getEngagementForDomain(domain, snap.company_id, snap.name || "Unknown");
     engagements.push(engagement);
+    // Small delay to avoid HubSpot rate limits (10 calls/sec)
+    if (!companyId) await sleep(300);
   }
 
   if (companyId && engagements.length === 1) {
