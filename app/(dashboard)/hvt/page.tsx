@@ -511,8 +511,13 @@ export default function HVTPage() {
                     <td className="py-3 px-4 text-center">
                       {hasIntel ? (
                         <div className="flex items-center justify-center gap-1">
-                          {hasWebsiteChange && <span className="w-2 h-2 rounded-full bg-amber-400" title="Website change detected" />}
-                          {hasPosts && <span className="w-2 h-2 rounded-full bg-blue-400" title={`${company.recent_posts.length} LinkedIn post${company.recent_posts.length === 1 ? "" : "s"}`} />}
+                          {hasWebsiteChange && (
+                            <span
+                              className="w-2.5 h-2.5 rounded-full bg-amber-400 cursor-help"
+                              title={`Website changed ${company.latest_website_change.checked_at?.slice(0, 10) || ""}\n${company.latest_website_change.change_summary || "Content updated"}`}
+                            />
+                          )}
+                          {hasPosts && <span className="w-2.5 h-2.5 rounded-full bg-blue-400 cursor-help" title={`${company.recent_posts.length} LinkedIn post${company.recent_posts.length === 1 ? "" : "s"}`} />}
                         </div>
                       ) : <span className="text-gray-600 text-xs">{"\u2014"}</span>}
                     </td>
