@@ -15,8 +15,11 @@ interface PipelineRun {
     updated?: number;
     skipped?: number;
     errors?: number;
+    hc_passed?: number;
+    llm_passed?: number;
+    llm_failed?: number;
   } | null;
-  error_message: string | null;
+  error_log: string | null;
 }
 
 function formatRunType(type: string): string {
@@ -71,9 +74,11 @@ export default function IngestionsPage() {
 
   // Compute summary stats
   const totalRuns = runs.length;
-  const totalNew = runs.reduce((sum, r) => sum + (r.stats?.new || 0), 0);
+  const totalIngested = runs.reduce((sum, r) => sum + (r.stats?.new || 0), 0);
+  const totalHCPassed = runs.reduce((sum, r) => sum + (r.stats?.hc_passed || 0), 0);
+  const totalLLMPassed = runs.reduce((sum, r) => sum + (r.stats?.llm_passed || 0), 0);
   const totalErrors = runs.reduce((sum, r) => sum + (r.stats?.errors || 0), 0);
-  const failedRuns = runs.filter((r) => r.status === "failed").length;
+  const lastRun = runs.length > 0 ? runs[0] : null;
 
   return (
     <div>
@@ -92,18 +97,27 @@ export default function IngestionsPage() {
         <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700/50">
           <div className="text-2xl font-bold text-white">{totalRuns}</div>
           <div className="text-xs text-gray-500 mt-1">Total Runs</div>
+          {lastRun && (
+            <div className="text-[10px] text-gray-600 mt-2">Last: {formatDate(lastRun.started_at)}</div>
+          )}
         </div>
         <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700/50">
-          <div className="text-2xl font-bold text-emerald-400">{totalNew}</div>
-          <div className="text-xs text-gray-500 mt-1">Companies Added</div>
+          <div className="text-2xl font-bold text-emerald-400">{totalIngested}</div>
+          <div className="text-xs text-gray-500 mt-1">Companies Ingested</div>
         </div>
         <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700/50">
-          <div className="text-2xl font-bold text-red-400">{totalErrors}</div>
-          <div className="text-xs text-gray-500 mt-1">Total Errors</div>
+          <div className="text-2xl font-bold text-blue-400">{totalHCPassed}</div>
+          <div className="text-xs text-gray-500 mt-1">Passed HC Filter</div>
+          {totalIngested > 0 && (
+            <div className="text-[10px] text-gray-600 mt-2">{Math.round((totalHCPassed / totalIngested) * 100)}% pass rate</div>
+          )}
         </div>
         <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700/50">
-          <div className="text-2xl font-bold text-yellow-400">{failedRuns}</div>
-          <div className="text-xs text-gray-500 mt-1">Failed Runs</div>
+          <div className="text-2xl font-bold text-purple-400">{totalLLMPassed}</div>
+          <div className="text-xs text-gray-500 mt-1">Passed LLM Survey</div>
+          {totalHCPassed > 0 && (
+            <div className="text-[10px] text-gray-600 mt-2">{Math.round((totalLLMPassed / totalHCPassed) * 100)}% of HC passed</div>
+          )}
         </div>
       </div>
 
@@ -124,9 +138,9 @@ export default function IngestionsPage() {
                 <th className="text-left py-3 px-4 font-medium text-gray-400">Date</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-400">Run Type</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-400">File</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-400">New</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-400">Updated</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-400">Skipped</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-400">Ingested</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-400">HC Passed</th>
+                <th className="text-right py-3 px-4 font-medium text-gray-400">LLM Passed</th>
                 <th className="text-right py-3 px-4 font-medium text-gray-400">Errors</th>
                 <th className="text-right py-3 px-4 font-medium text-gray-400">Duration</th>
                 <th className="text-center py-3 px-4 font-medium text-gray-400">Status</th>
@@ -148,10 +162,10 @@ export default function IngestionsPage() {
                     {run.stats?.new ?? "\u2014"}
                   </td>
                   <td className="py-3 px-4 text-right tabular-nums text-blue-400">
-                    {run.stats?.updated ?? "\u2014"}
+                    {run.stats?.hc_passed ?? "\u2014"}
                   </td>
-                  <td className="py-3 px-4 text-right tabular-nums text-gray-500">
-                    {run.stats?.skipped ?? "\u2014"}
+                  <td className="py-3 px-4 text-right tabular-nums text-purple-400">
+                    {run.stats?.llm_passed ?? "\u2014"}
                   </td>
                   <td className="py-3 px-4 text-right tabular-nums text-red-400">
                     {run.stats?.errors ?? "\u2014"}
