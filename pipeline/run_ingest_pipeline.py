@@ -46,10 +46,21 @@ def process_company_llm(snapshot_id: str, company_name: str, website_url: str):
             return
 
         url = website_url if website_url.startswith("http") else f"https://{website_url}"
-        website_text = scrape_website(url)
+
+        # Deep scrape and store website snapshot for change detection
+        from script3_domain import deep_scrape_website, store_website_snapshot, get_latest_website_snapshot
+        scrape_result = deep_scrape_website(url)
+        website_text = scrape_result.get("combined") if scrape_result else None
         if not website_text:
             log.warning(f"  [LLM] Could not scrape website for {company_name}")
             return
+
+        # Store website snapshot
+        try:
+            prev = get_latest_website_snapshot(company_id)
+            store_website_snapshot(company_id, url, scrape_result, prev)
+        except Exception as e:
+            log.warning(f"  [WebSnapshot] Failed to store for {company_name}: {e}")
 
         # Google Ads competitor search disabled for now
         ad_competitors = []

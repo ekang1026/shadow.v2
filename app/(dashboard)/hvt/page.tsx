@@ -117,6 +117,8 @@ export default function HVTPage() {
   const [adding, setAdding] = useState(false);
   const [addStatus, setAddStatus] = useState<string | null>(null);
   const [showPassModal, setShowPassModal] = useState(false);
+  const [passQueue, setPassQueue] = useState<string[]>([]);
+  const [passIndex, setPassIndex] = useState(0);
   const [passReason, setPassReason] = useState<string>("");
   const [passNote, setPassNote] = useState("");
   const [passing, setPassing] = useState(false);
@@ -228,38 +230,65 @@ export default function HVTPage() {
     }
   };
 
-  const handlePassCompanies = async () => {
-    if (!passReason || selectedIds.size === 0) return;
+  const handleOpenPassModal = () => {
+    const queue = Array.from(selectedIds);
+    setPassQueue(queue);
+    setPassIndex(0);
+    setPassReason("");
+    setPassNote("");
+    setShowPassModal(true);
+  };
+
+  const handlePassCurrent = async () => {
+    if (!passReason) return;
+    const companyId = passQueue[passIndex];
     setPassing(true);
     try {
-      const results = await Promise.all(
-        Array.from(selectedIds).map(async (companyId) => {
-          const res = await fetch("/api/review", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              companyId,
-              classification: passReason,
-              note: passNote || undefined,
-            }),
-          });
-          return { companyId, ok: res.ok };
-        })
-      );
-      const succeeded = results.filter((r) => r.ok).length;
-      setDraftStatus(`${succeeded} company${succeeded !== 1 ? "ies" : ""} moved to ${passReason}`);
-      setSelectedIds(new Set());
-      setShowPassModal(false);
-      setPassReason("");
-      setPassNote("");
-      fetchCompanies();
-      setTimeout(() => setDraftStatus(null), 5000);
+      await fetch("/api/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId,
+          classification: passReason,
+          note: passNote || undefined,
+        }),
+      });
+
+      // Move to next company or finish
+      if (passIndex < passQueue.length - 1) {
+        setPassIndex(passIndex + 1);
+        setPassReason("");
+        setPassNote("");
+      } else {
+        // All done
+        setDraftStatus(`${passQueue.length} company${passQueue.length !== 1 ? "ies" : ""} passed`);
+        setSelectedIds(new Set());
+        setShowPassModal(false);
+        setPassQueue([]);
+        setPassIndex(0);
+        setPassReason("");
+        setPassNote("");
+        fetchCompanies();
+        setTimeout(() => setDraftStatus(null), 5000);
+      }
     } catch (err) {
       console.error("Pass failed:", err);
-      setDraftStatus("Failed to pass companies");
+      setDraftStatus("Failed to pass company");
       setTimeout(() => setDraftStatus(null), 5000);
     } finally {
       setPassing(false);
+    }
+  };
+
+  const handleSkipPass = () => {
+    if (passIndex < passQueue.length - 1) {
+      setPassIndex(passIndex + 1);
+      setPassReason("");
+      setPassNote("");
+    } else {
+      setShowPassModal(false);
+      setPassQueue([]);
+      setPassIndex(0);
     }
   };
 
@@ -316,7 +345,7 @@ export default function HVTPage() {
               <button onClick={handleDraftEmails} disabled={drafting} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:text-blue-300 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed">
                 {drafting ? "Drafting..." : `Draft ${selectedIds.size} Email${selectedIds.size > 1 ? "s" : ""}`}
               </button>
-              <button onClick={() => setShowPassModal(true)} className="px-4 py-1.5 text-sm font-medium text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors cursor-pointer">
+              <button onClick={handleOpenPassModal} className="px-4 py-1.5 text-sm font-medium text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors cursor-pointer">
                 Pass ({selectedIds.size})
               </button>
             </>
@@ -363,10 +392,19 @@ export default function HVTPage() {
       )}
 
       {/* Pass Modal */}
-      {showPassModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => setShowPassModal(false)}>
+      {showPassModal && passQueue.length > 0 && (() => {
+        const currentCompanyId = passQueue[passIndex];
+        const currentCompany = companies.find((c) => c.id === currentCompanyId);
+        const currentName = currentCompany?.snapshot?.name || "Unknown";
+        return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" onClick={() => { setShowPassModal(false); setPassQueue([]); setPassIndex(0); }}>
           <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[480px] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-medium text-white mb-1">Pass on {selectedIds.size} {selectedIds.size === 1 ? "company" : "companies"}</h3>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-lg font-medium text-white">Pass on {currentName}</h3>
+              {passQueue.length > 1 && (
+                <span className="text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">{passIndex + 1} of {passQueue.length}</span>
+              )}
+            </div>
             <p className="text-sm text-gray-400 mb-4">Select a reason and optionally add a note.</p>
 
             <div className="grid grid-cols-2 gap-2 mb-4">
@@ -404,22 +442,31 @@ export default function HVTPage() {
 
             <div className="flex items-center justify-end gap-3">
               <button
-                onClick={() => { setShowPassModal(false); setPassReason(""); setPassNote(""); }}
+                onClick={() => { setShowPassModal(false); setPassQueue([]); setPassIndex(0); setPassReason(""); setPassNote(""); }}
                 className="px-4 py-2 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors cursor-pointer"
               >
                 Cancel
               </button>
+              {passQueue.length > 1 && (
+                <button
+                  onClick={handleSkipPass}
+                  className="px-4 py-2 text-sm text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg transition-colors cursor-pointer"
+                >
+                  Skip
+                </button>
+              )}
               <button
-                onClick={handlePassCompanies}
+                onClick={handlePassCurrent}
                 disabled={!passReason || passing}
                 className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 disabled:bg-red-900 disabled:text-red-300 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
               >
-                {passing ? "Passing..." : `Confirm Pass (${passReason || "..."})`}
+                {passing ? "Passing..." : passIndex < passQueue.length - 1 ? `Pass & Next (${passReason || "..."})` : `Confirm Pass (${passReason || "..."})`}
               </button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {loading ? (
         <div className="flex items-center justify-center py-20"><div className="text-gray-500">Loading HVT companies...</div></div>
