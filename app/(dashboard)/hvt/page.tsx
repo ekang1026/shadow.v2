@@ -122,9 +122,22 @@ export default function HVTPage() {
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/hvt");
-      const data = await res.json();
+      const [hvtRes, hsRes] = await Promise.all([
+        fetch("/api/hvt"),
+        fetch("/api/hubspot"),
+      ]);
+      const data = await hvtRes.json();
       setCompanies(data);
+
+      // Load all HubSpot data for table columns
+      const hsAll = await hsRes.json();
+      if (Array.isArray(hsAll)) {
+        const hsMap: Record<string, HubSpotEngagement> = {};
+        for (const hs of hsAll) {
+          if (hs.companyId) hsMap[hs.companyId] = hs;
+        }
+        setHubspotData(hsMap);
+      }
     } catch (err) {
       console.error("Failed to fetch HVT companies:", err);
     } finally {
@@ -366,14 +379,24 @@ export default function HVTPage() {
                         {s?.ceo_linkedin_url && (<a href={s.ceo_linkedin_url} target="_blank" rel="noopener noreferrer" className="px-1 py-0.5 text-[10px] font-bold rounded bg-gray-700 text-blue-400 hover:bg-gray-600 hover:text-blue-300 transition-colors" title="CEO LinkedIn" onClick={(e) => e.stopPropagation()}>LI</a>)}
                       </div>
                     </td>
-                    <td className="py-3 px-4 text-center text-gray-300 tabular-nums">{o?.outreach_count ?? "\u2014"}</td>
-                    <td className="py-3 px-4 text-center tabular-nums">
-                      {o?.days_since_last_activity != null ? (
-                        <span className={o.days_since_last_activity > 14 ? "text-red-400" : o.days_since_last_activity > 7 ? "text-yellow-400" : "text-gray-300"}>{o.days_since_last_activity}d</span>
-                      ) : "\u2014"}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      {o ? (o.any_opens ? <span className="text-emerald-400 text-xs font-medium">Yes</span> : <span className="text-gray-500 text-xs">No</span>) : "\u2014"}
+                    {(() => {
+                      const hs = hubspotData[company.id];
+                      const daysIdle = hs?.lastActivityDate ? Math.floor((Date.now() - new Date(hs.lastActivityDate).getTime()) / 86400000) : null;
+                      const hasOpened = hs ? hs.totalOpens > 0 : false;
+                      return (
+                        <>
+                          <td className="py-3 px-4 text-center text-gray-300 tabular-nums">{hs ? hs.totalEmails : "\u2014"}</td>
+                          <td className="py-3 px-4 text-center tabular-nums">
+                            {daysIdle !== null ? (
+                              <span className={daysIdle > 14 ? "text-red-400" : daysIdle > 7 ? "text-yellow-400" : "text-gray-300"}>{daysIdle}d</span>
+                            ) : "\u2014"}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            {hs ? (hasOpened ? <span className="text-emerald-400 text-xs font-medium">Yes</span> : <span className="text-gray-500 text-xs">No</span>) : "\u2014"}
+                          </td>
+                        </>
+                      );
+                    })()}
                     </td>
                     <td className="py-3 px-4 text-center">
                       {hasIntel ? (
