@@ -6,10 +6,17 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { config } from "dotenv";
 
-// Manually load .env.local since Turbopack may not load it for API routes
-const envPath = join(process.cwd(), ".env.local");
-if (existsSync(envPath)) {
-  config({ path: envPath, override: true });
+// Manually load env files since Turbopack may not load them for API routes
+for (const envFile of [".env.local", ".env"]) {
+  const p = join(process.cwd(), envFile);
+  if (existsSync(p)) {
+    config({ path: p, override: true });
+  }
+}
+// Also try pipeline/.env for API keys
+const pipelineEnv = join(process.cwd(), "pipeline", ".env");
+if (existsSync(pipelineEnv)) {
+  config({ path: pipelineEnv });
 }
 
 export const dynamic = "force-dynamic";
@@ -264,11 +271,9 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // If no email found, still draft — leave To: empty for user to fill in
   if (!recipientEmail) {
-    return NextResponse.json(
-      { error: `No CEO email found for ${companyName} via Apollo.` },
-      { status: 400 }
-    );
+    console.log(`[Draft] No CEO email found for ${companyName} — drafting with empty To:`);
   }
 
   // Scrape the website for content to feed the LLM
@@ -334,6 +339,10 @@ export async function POST(request: NextRequest) {
 
   // Call Claude to generate the email
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) {
+    console.error("[Draft Email] ANTHROPIC_API_KEY not found. CWD:", process.cwd(), "ENV keys:", Object.keys(process.env).filter(k => k.includes("ANTHROPIC") || k.includes("APOLLO")));
+    return NextResponse.json({ error: "ANTHROPIC_API_KEY not configured. Check .env.local" }, { status: 500 });
+  }
   const anthropic = new Anthropic({
     apiKey: anthropicKey,
   });
@@ -430,8 +439,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       draftId: draft.id,
-      to: recipientEmail,
+      to: recipientEmail || "(no email found — fill in manually)",
       subject,
+      missingEmail: !recipientEmail,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
