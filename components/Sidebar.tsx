@@ -12,6 +12,7 @@ const navItems = [
   { href: "/ingestions", label: "Ingestions", icon: "📥" },
   { href: "/metrics", label: "Monthly Metrics", icon: "📊" },
   { href: "/slack", label: "Slack Integration", icon: "💬" },
+  { href: "/costs", label: "API Costs", icon: "💰" },
 ];
 
 export default function Sidebar() {

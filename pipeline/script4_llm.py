@@ -56,6 +56,14 @@ def classify_company(client: Anthropic, prompt_template: str,
             ]
         )
 
+        # Log API usage
+        try:
+            from usage_logger import log_anthropic_usage
+            usage = response.usage
+            log_anthropic_usage("llm_survey", company_name, usage.input_tokens, usage.output_tokens)
+        except Exception:
+            pass
+
         # Extract text from response
         text = response.content[0].text.strip()
 
@@ -220,6 +228,14 @@ Return ONLY a JSON object in this format:
             temperature=0.7,  # Higher temp for better research/discovery
             messages=[{"role": "user", "content": prompt}]
         )
+
+        # Log API usage
+        try:
+            from usage_logger import log_anthropic_usage
+            usage = response.usage
+            log_anthropic_usage("competitor_research", company_name, usage.input_tokens, usage.output_tokens)
+        except Exception:
+            pass
 
         text = response.content[0].text.strip()
         if "```json" in text:

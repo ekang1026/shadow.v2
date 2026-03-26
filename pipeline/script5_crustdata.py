@@ -98,13 +98,28 @@ def enrich_company(domain: str) -> dict | None:
         response.raise_for_status()
         data = response.json()
         if isinstance(data, list) and len(data) > 0:
+            try:
+                from usage_logger import log_crustdata_usage
+                log_crustdata_usage("company_enrichment", domain)
+            except Exception:
+                pass
             return data[0]
         elif isinstance(data, dict) and "error" in data:
             log.warning(f"  API error: {data['error'][:100]}")
+            try:
+                from usage_logger import log_crustdata_usage
+                log_crustdata_usage("company_enrichment", domain, success=False, error_message=str(data['error'])[:200])
+            except Exception:
+                pass
             return None
         return None
     except httpx.HTTPStatusError as e:
         log.warning(f"  API error ({e.response.status_code})")
+        try:
+            from usage_logger import log_crustdata_usage
+            log_crustdata_usage("company_enrichment", domain, success=False, error_message=f"HTTP {e.response.status_code}")
+        except Exception:
+            pass
         return None
     except Exception as e:
         log.error(f"  Request failed: {e}")
